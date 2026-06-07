@@ -1,0 +1,65 @@
+========================================================================
+           GUIA DE INSTALACION Y EJECUCION EN OTRA PC
+========================================================================
+
+Sigue estos sencillos pasos para migrar y ejecutar el Gestor de Archivos 
+en cualquier otra computadora con sistema operativo Windows.
+
+------------------------------------------------------------------------
+PASO 1: Instalar Python en la nueva PC
+------------------------------------------------------------------------
+1. Descarga e instala Python 3.10 o superior desde la pagina oficial:
+   https://www.python.org/downloads/
+2. IMPORTANTE: Durante la instalacion, asegúrate de marcar la casilla 
+   que dice "Add Python to PATH" (Agregar Python al PATH). Si no lo 
+   haces, la consola no reconocera el comando "python" ni "pip".
+
+------------------------------------------------------------------------
+PASO 2: Copiar el proyecto
+------------------------------------------------------------------------
+1. Copia toda la carpeta del proyecto (GestorArchivo) en un pendrive, 
+   disco externo o enviala por red.
+2. Pegala en el disco de la nueva PC. Por ejemplo:
+   D:\GestorArchivo  o  C:\GestorArchivo
+
+------------------------------------------------------------------------
+PASO 3: Instalar las dependencias
+------------------------------------------------------------------------
+1. Abre la terminal de Windows (consola cmd o PowerShell).
+2. Navega hasta la carpeta del proyecto usando el comando "cd". 
+   Por ejemplo:
+   cd D:\GestorArchivo
+3. Ejecuta el siguiente comando para instalar todas las librerias 
+   necesarias (Streamlit, FastAPI, PyMuPDF, etc.):
+   pip install -r requirements.txt
+
+------------------------------------------------------------------------
+PASO 4: Configurar la Base de Datos (Opcional)
+------------------------------------------------------------------------
+Por defecto, el programa creara automaticamente una base de datos local 
+SQLite llamada "gestor_archivos.db" en la misma carpeta. No necesitas 
+configurar nada para que funcione con SQLite.
+
+Si en la nueva PC deseas conectarlo a una base de datos PostgreSQL:
+1. Crea un archivo de texto llamado ".env" en la raiz del proyecto.
+2. Agrega dentro tu cadena de conexion de la siguiente manera:
+   DATABASE_URL=postgresql://usuario:contraseña@localhost:5432/nombre_db
+
+------------------------------------------------------------------------
+PASO 5: Ejecutar la aplicacion
+------------------------------------------------------------------------
+1. Desde la terminal en la carpeta del proyecto, ejecuta:
+   python launcher.py
+2. Veras mensajes en pantalla confirmando el inicio de los servidores.
+3. Abre tu navegador de internet e ingresa a las siguientes direcciones:
+   - Dashboard (Streamlit): http://localhost:8501
+   - Documentacion Backend: http://localhost:8000/docs
+
+------------------------------------------------------------------------
+PASO 6: Estructura Inicial automatica
+------------------------------------------------------------------------
+Cuando la aplicacion inicie por primera vez, creara automaticamente las 
+siguientes carpetas si no existen en el directorio:
+- Entrada\   (Donde colocaras las carpetas con PDFs a organizar)
+- Salida\    (Donde se creara la ramificacion organizada)
+- Revision\  (Donde iran las carpetas que requieran correccion manual)
