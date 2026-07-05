@@ -27,3 +27,7 @@ Desktop.ini
 Entrada/
 Salida/
 Revision/
+
+# Scanned PDFs and generated Word labels
+*.pdf
+*.docx
