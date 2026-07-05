@@ -22,3 +22,8 @@ ENV/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Local Application Data Folders
+Entrada/
+Salida/
+Revision/

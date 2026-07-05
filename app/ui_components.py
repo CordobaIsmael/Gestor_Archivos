@@ -175,7 +175,7 @@ def render_stats(organized_count: int, revision_count: int):
         unsafe_allow_html=True
     )
 
-def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None):
+def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, salida_path=None):
     """Renders an interactive manual editor and PDF viewer inside a collapsible container for Revision items."""
     folder_path = Path(reparto['ruta_nueva'])
     folder_name = folder_path.name
@@ -189,6 +189,18 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None):
         # ----------------- COLUMNA IZQUIERDA: FORMULARIO -----------------
         with col_form:
             st.markdown("##### 🛠️ Datos del Reparto")
+            
+            # Button to open the folder in File Explorer
+            if st.button("📂 Abrir Carpeta en Explorador", key=f"open_rev_folder_{reparto['id']}", use_container_width=True):
+                try:
+                    res_open = requests.post(f"{API_URL}/api/repartos/{reparto['id']}/open")
+                    if res_open.status_code == 200:
+                        st.toast("Carpeta abierta en el Explorador.")
+                    else:
+                        st.error(res_open.json().get("detail", "Error al abrir la carpeta."))
+                except Exception as ex:
+                    st.error(f"Error de conexión: {ex}")
+
             if active_caja is None:
                 st.warning("⚠️ Debes tener una caja activa abierta para guardar y organizar este reparto.")
             empresa_options = ["INTERPROVINCIAL", "OTAPEYA"]
@@ -214,11 +226,12 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None):
             fecha = st.date_input(
                 "Fecha de Reparto", 
                 value=default_date,
-                key=f"fec_{reparto['id']}"
+                key=f"fec_{reparto['id']}",
+                format="DD/MM/YYYY"
             )
             
             sucursal = st.text_input(
-                "Sucursal (BB, NQN, CF, MDP, etc.)", 
+                "Sucursal (BB, CF, NQ, MP, RO, OL, TA, AR, AZ, CO, RE)", 
                 value=reparto["sucursal"] or "",
                 key=f"suc_{reparto['id']}"
             )
@@ -232,14 +245,19 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None):
             # Resolve button
             st.write("")
             if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True, disabled=active_caja is None):
+                suc_clean = sucursal.strip().upper()
                 if not sucursal.strip() or not nro_reparto.strip():
                     st.error("Por favor completa los campos de Sucursal y Número de Reparto.")
+                elif suc_clean not in settings.VALID_SUCURSALES:
+                    valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
+                    st.error(f"Por favor ingresa una sucursal válida. Debe ser una de: {valid_list}")
                 else:
                     payload = {
                         "empresa": empresa,
                         "fecha": fecha.isoformat(),
                         "sucursal": sucursal.strip(),
-                        "nro_reparto": nro_reparto.strip()
+                        "nro_reparto": nro_reparto.strip(),
+                        "salida_path": salida_path.strip() if salida_path else None
                     }
                     
                     try:

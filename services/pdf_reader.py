@@ -9,9 +9,15 @@ class PDFReader:
     def normalize_sucursal(sucursal_raw: str) -> str:
         """Normalizes common OCR misread sucursales (e.g. 8B, 88 -> BB)."""
         s = sucursal_raw.upper().strip()
-        # Common OCR fixes
-        if s in ["8B", "88", "B8"]:
+        # Common OCR fixes for BB
+        if s in ["8B", "88", "B8", "B6", "86", "6B", "66", "B0", "0B"]:
             return "BB"
+        # Common OCR fixes for NQ (Neuquen)
+        if s in ["NQN", "NQ1", "NQ0", "N9", "N0"]:
+            return "NQ"
+        # Common OCR fixes for MP (Mar del Plata)
+        if s in ["MDP", "MP1", "MP0"]:
+            return "MP"
         return s
 
     @classmethod

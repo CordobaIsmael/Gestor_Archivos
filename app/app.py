@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
 
 import sys
 from pathlib import Path
@@ -12,6 +13,15 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 from config.settings import settings
+
+def format_date_display(fecha_str: str) -> str:
+    """Formats a YYYY-MM-DD ISO date string to DD/MM/YYYY format for UI presentation."""
+    if not fecha_str:
+        return "N/A"
+    try:
+        return datetime.strptime(fecha_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        return fecha_str
 from ui_components import (
     inject_custom_css, 
     render_header, 
@@ -95,7 +105,13 @@ scan_path = st.sidebar.text_input(
     help="Ingresa la ruta absoluta de la carpeta a procesar de forma recursiva."
 )
 
-st.sidebar.markdown(f"**Salida:** `{settings.SALIDA}`")
+# Text input to choose organized output folder
+salida_path = st.sidebar.text_input(
+    "Carpeta de Salida:",
+    value=str(settings.SALIDA),
+    help="Ruta absoluta de la carpeta donde se moverán los archivos organizados."
+)
+
 st.sidebar.markdown(f"**Revisión:** `{settings.REVISION}`")
 st.sidebar.markdown("---")
 
@@ -109,7 +125,10 @@ if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled
     else:
         with st.spinner("Escaneando y organizando documentos..."):
             try:
-                payload = {"path": scan_path.strip()}
+                payload = {
+                    "path": scan_path.strip(),
+                    "salida_path": salida_path.strip()
+                }
                 res = requests.post(f"{API_URL}/api/process", json=payload)
                 if res.status_code == 200:
                     data = res.json().get("data", {})
@@ -174,7 +193,7 @@ with tab_revision:
         st.success("¡Excelente! No hay carpetas pendientes de revisión.")
     else:
         for reparto in en_revision:
-            render_reparto_row(reparto, force_rerun, active_caja=active_caja)
+            render_reparto_row(reparto, force_rerun, active_caja=active_caja, salida_path=salida_path)
 
 with tab_search:
     st.markdown("### 🔍 Buscador de Repartos")
@@ -213,7 +232,7 @@ with tab_search:
                             f"<span class='premium-badge {estado_badge}'>{estado_text}</span>", 
                             unsafe_allow_html=True
                         )
-                        st.markdown(f"**Empresa:** {r['empresa']} | **Fecha:** {r['fecha'] or 'N/A'}")
+                        st.markdown(f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])}")
                         st.markdown(f"**Ruta:** `{r['ruta_nueva']}`")
                     with col_btn:
                         st.write("")
@@ -244,7 +263,7 @@ with tab_organizados:
             df_data.append({
                 "ID": r["id"],
                 "Empresa": r["empresa"],
-                "Fecha": r["fecha"],
+                "Fecha": format_date_display(r["fecha"]),
                 "Sucursal": r["sucursal"],
                 "Nro Reparto": r["nro_reparto"],
                 "Caja": r.get("caja_codigo") or "S/C",

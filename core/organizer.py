@@ -41,12 +41,13 @@ def clean_empty_directories(root_path: Path):
             except Exception as e:
                 print(f"Error removing empty directory {p}: {e}")
 
-def process_incoming_folders(db: Session, custom_path: Path = None) -> Dict[str, List[Dict[str, Any]]]:
+def process_incoming_folders(db: Session, custom_path: Path = None, custom_salida: Path = None) -> Dict[str, List[Dict[str, Any]]]:
     """
     Scans the specified folder (or settings.ENTRADA) recursively for folders containing PDFs,
     processes each one, organizes them, and records metadata in the database.
     """
     entrada_path = custom_path if custom_path is not None else Path(settings.ENTRADA)
+    salida_base = custom_salida if custom_salida is not None else Path(settings.SALIDA)
     results = {
         "organizados": [],
         "revision": []
@@ -86,11 +87,18 @@ def process_incoming_folders(db: Session, custom_path: Path = None) -> Dict[str,
 
         original_path_str = str(folder.resolve())
 
-        # If a complete Hoja de Reparto was found with all metadata
+        # Check if the detected sucursal is officially valid
+        is_valid_sucursal = (
+            metadata_found and 
+            metadata_found["sucursal"] and 
+            metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
+        )
+
+        # If a complete Hoja de Reparto was found with all metadata and a valid sucursal
         if (metadata_found and 
             metadata_found["empresa"] and 
             metadata_found["fecha"] and 
-            metadata_found["sucursal"] and 
+            is_valid_sucursal and 
             metadata_found["nro_reparto"]):
             
             empresa = metadata_found["empresa"]
@@ -98,7 +106,7 @@ def process_incoming_folders(db: Session, custom_path: Path = None) -> Dict[str,
             nro_reparto = metadata_found["nro_reparto"]
             
             dest_path = get_organized_path(
-                base_salida=Path(settings.SALIDA),
+                base_salida=salida_base,
                 empresa=empresa,
                 fecha=metadata_found["fecha"],
                 sucursal=sucursal,
@@ -188,7 +196,8 @@ def resolve_revision_folder(
     fecha_obj: date, 
     sucursal: str, 
     nro_reparto: str, 
-    db: Session
+    db: Session,
+    custom_salida: Path = None
 ) -> Dict[str, Any]:
     """
     Manually resolves a folder that was in REVISION.
@@ -201,12 +210,18 @@ def resolve_revision_folder(
     if reparto.estado != "EN_REVISION":
         raise ValueError(f"Reparto with ID {reparto_id} is not in REVISION status.")
         
+    sucursal_clean = sucursal.strip().upper()
+    if sucursal_clean not in settings.VALID_SUCURSALES:
+        valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
+        raise ValueError(f"La sucursal '{sucursal}' no es válida. Debe ser una de: {valid_list}")
+        
     src_path = Path(reparto.ruta_nueva)
     if not src_path.exists():
         raise FileNotFoundError(f"Source folder in Revision does not exist: {src_path}")
         
+    salida_base = custom_salida if custom_salida is not None else Path(settings.SALIDA)
     dest_path = get_organized_path(
-        base_salida=Path(settings.SALIDA),
+        base_salida=salida_base,
         empresa=empresa,
         fecha=fecha_obj,
         sucursal=sucursal,

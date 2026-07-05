@@ -21,6 +21,21 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     API_URL: str = "http://127.0.0.1:8000"
 
+    # Official valid sucursales
+    VALID_SUCURSALES: dict = {
+        "BB": "Bahía Blanca",
+        "CF": "Capital Federal",
+        "NQ": "Neuquén",
+        "MP": "Mar del Plata",
+        "RO": "Rosario",
+        "OL": "Olavarría",
+        "TA": "Tandil",
+        "AR": "Tres Arroyos",
+        "AZ": "Azul",
+        "CO": "Córdoba",
+        "RE": "Regina"
+    }
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

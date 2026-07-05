@@ -25,25 +25,33 @@ class ResolveRequest(BaseModel):
     fecha: date
     sucursal: str
     nro_reparto: str
+    salida_path: Optional[str] = None
 
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
+    salida_path: Optional[str] = None
 
 @app.post("/api/process", summary="Process incoming folders")
 def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends(get_db)):
     try:
         custom_path = None
-        if data and data.path:
+        custom_salida = None
+        
+        if data:
             from pathlib import Path
-            p = Path(data.path)
-            if not p.exists() or not p.is_dir():
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"La ruta especificada no existe o no es un directorio: {data.path}"
-                )
-            custom_path = p
+            if data.path:
+                p = Path(data.path)
+                if not p.exists() or not p.is_dir():
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"La ruta especificada no existe o no es un directorio: {data.path}"
+                    )
+                custom_path = p
+                
+            if data.salida_path:
+                custom_salida = Path(data.salida_path)
             
-        results = process_incoming_folders(db, custom_path=custom_path)
+        results = process_incoming_folders(db, custom_path=custom_path, custom_salida=custom_salida)
         return {
             "status": "success",
             "message": "Procesamiento completado.",
@@ -75,13 +83,17 @@ def resolve_reparto(
     db: Session = Depends(get_db)
 ):
     try:
+        from pathlib import Path
+        custom_salida = Path(data.salida_path) if data.salida_path else None
+        
         updated_reparto = resolve_revision_folder(
             reparto_id=reparto_id,
             empresa=data.empresa,
             fecha_obj=data.fecha,
             sucursal=data.sucursal,
             nro_reparto=data.nro_reparto,
-            db=db
+            db=db,
+            custom_salida=custom_salida
         )
         return {
             "status": "success",
