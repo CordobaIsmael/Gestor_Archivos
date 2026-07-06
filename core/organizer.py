@@ -9,7 +9,7 @@ from models.database import Reparto, Caja
 from services.pdf_reader import PDFReader
 from services.file_manager import move_directory, get_organized_path
 
-def find_pdf_folders(root_path: Path) -> List[Path]:
+def find_folders_with_pdfs(root_path: Path) -> List[Path]:
     """
     Recursively walks the directory tree starting at root_path
     and returns a list of all directories that contain at least one PDF file directly.
@@ -17,11 +17,21 @@ def find_pdf_folders(root_path: Path) -> List[Path]:
     subfolders are processed and moved before their parent directories.
     """
     pdf_folders = []
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        has_pdf = any(f.lower().endswith('.pdf') for f in filenames)
-        if has_pdf:
-            pdf_folders.append(Path(dirpath))
+    # Check if root_path itself is a directory and has PDFs directly
+    if root_path.exists() and root_path.is_dir():
+        # Check if root_path has PDFs directly in it
+        if any(f.name.lower().endswith('.pdf') for f in root_path.iterdir() if f.is_file()):
+            pdf_folders.append(root_path)
             
+        # Walk subdirectories
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            p = Path(dirpath)
+            if p == root_path:
+                continue
+            has_pdf = any(f.lower().endswith('.pdf') for f in filenames)
+            if has_pdf:
+                pdf_folders.append(p)
+                
     # Sort by depth descending (longer paths first)
     pdf_folders.sort(key=lambda p: len(p.parts), reverse=True)
     return pdf_folders
@@ -64,7 +74,7 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
     caja_id = active_caja.id
         
     # Find all folders containing PDF files directly, sorted by depth (deepest first)
-    pdf_folders = find_pdf_folders(entrada_path)
+    pdf_folders = find_folders_with_pdfs(entrada_path)
     
     for folder in pdf_folders:
         print(f"Processing folder: {folder.name} (Path: {folder})")
@@ -161,9 +171,14 @@ def send_to_revision(folder_path: Path, db: Session, results: dict, metadata_fou
         nro_reparto = None
         
         if metadata_found:
-            empresa = metadata_found.get("empresa") or "DESCONOCIDA"
+            emp_raw = metadata_found.get("empresa")
+            empresa = emp_raw if emp_raw in ["INTERPROVINCIAL", "OTAPEYA"] else "DESCONOCIDA"
             fecha = metadata_found.get("fecha")
-            sucursal = metadata_found.get("sucursal")
+            
+            suc_raw = metadata_found.get("sucursal")
+            suc_clean = suc_raw.upper().strip() if suc_raw else None
+            sucursal = suc_clean if suc_clean in settings.VALID_SUCURSALES else None
+            
             nro_reparto = metadata_found.get("nro_reparto")
             
         # Get active box if any

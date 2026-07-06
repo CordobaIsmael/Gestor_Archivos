@@ -3,9 +3,8 @@ import requests
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-
 import sys
-from pathlib import Path
+import subprocess
 
 # Add project root to sys.path to enable config imports
 root_dir = Path(__file__).resolve().parent.parent
@@ -13,6 +12,18 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 from config.settings import settings
+
+def select_directory_dialog(initial_dir: str) -> str:
+    """Opens a native directory selector dialog in a separate subprocess to ensure thread safety."""
+    cmd = [
+        sys.executable, "-c",
+        f"import tkinter as tk; from tkinter import filedialog; root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True); print(filedialog.askdirectory(initialdir={repr(initial_dir)}))"
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return res.stdout.strip()
+    except Exception:
+        return ""
 
 def format_date_display(fecha_str: str) -> str:
     """Formats a YYYY-MM-DD ISO date string to DD/MM/YYYY format for UI presentation."""
@@ -98,19 +109,55 @@ st.sidebar.info(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📂 Selección de Carpeta")
 
-# Text input to choose folder to scan
-scan_path = st.sidebar.text_input(
-    "Carpeta a escanear:",
-    value=str(settings.ENTRADA),
-    help="Ingresa la ruta absoluta de la carpeta a procesar de forma recursiva."
-)
+# Handle session state for directory paths to keep them in sync
+if "scan_path_input" not in st.session_state:
+    st.session_state["scan_path_input"] = str(Path(settings.ENTRADA).resolve())
 
-# Text input to choose organized output folder
-salida_path = st.sidebar.text_input(
-    "Carpeta de Salida:",
-    value=str(settings.SALIDA),
-    help="Ruta absoluta de la carpeta donde se moverán los archivos organizados."
-)
+if "salida_path_input" not in st.session_state:
+    st.session_state["salida_path_input"] = str(Path(settings.SALIDA).resolve())
+
+# Apply picker updates BEFORE widgets are instantiated to avoid StreamlitAPIException
+if "selected_scan_path" in st.session_state:
+    st.session_state["scan_path_input"] = st.session_state.pop("selected_scan_path")
+
+if "selected_salida_path" in st.session_state:
+    st.session_state["salida_path_input"] = st.session_state.pop("selected_salida_path")
+
+# Folder to scan: Text input + picker button
+col_scan_text, col_scan_btn = st.sidebar.columns([4, 1])
+with col_scan_text:
+    scan_path = st.text_input(
+        "Carpeta a escanear:",
+        help="Ruta absoluta de la carpeta a procesar.",
+        key="scan_path_input"
+    )
+
+with col_scan_btn:
+    st.write("") # vertical alignment spacing
+    st.write("")
+    if st.button("📁", key="btn_pick_scan", help="Seleccionar carpeta de entrada..."):
+        selected = select_directory_dialog(st.session_state["scan_path_input"])
+        if selected:
+            st.session_state["selected_scan_path"] = str(Path(selected).resolve())
+            st.rerun()
+
+# Output folder: Text input + picker button
+col_sal_text, col_sal_btn = st.sidebar.columns([4, 1])
+with col_sal_text:
+    salida_path = st.text_input(
+        "Carpeta de Salida:",
+        help="Ruta absoluta de la carpeta donde se moverán los archivos organizados.",
+        key="salida_path_input"
+    )
+
+with col_sal_btn:
+    st.write("") # vertical alignment spacing
+    st.write("")
+    if st.button("📁", key="btn_pick_salida", help="Seleccionar carpeta de salida..."):
+        selected = select_directory_dialog(st.session_state["salida_path_input"])
+        if selected:
+            st.session_state["selected_salida_path"] = str(Path(selected).resolve())
+            st.rerun()
 
 st.sidebar.markdown(f"**Revisión:** `{settings.REVISION}`")
 st.sidebar.markdown("---")
