@@ -99,3 +99,38 @@ class PDFReader:
             print(f"Error reading PDF {pdf_path}: {e}")
             
         return metadata
+
+    @classmethod
+    def extract_expected_guias(cls, pdf_path: Path) -> list:
+        """Extracts expected guias (format A.34.123456 or X. 2.4623) from the Hoja de Reparto."""
+        try:
+            doc = fitz.open(pdf_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+            # Regex match allowing spaces
+            matches = re.findall(r'[A-Z]\s*\.\s*\d+\s*\.\s*\d+', text)
+            # Normalize by removing all spaces
+            normalized_matches = [re.sub(r'\s+', '', m) for m in matches]
+            return sorted(list(set(normalized_matches)))
+        except Exception as e:
+            print(f"Error extracting expected guias: {e}")
+            return []
+
+    @classmethod
+    def check_pdf_contains_serial(cls, pdf_path: Path, serial: str) -> bool:
+        """Checks if a PDF contains the given serial number string."""
+        try:
+            doc = fitz.open(pdf_path)
+            # Normalize serial: strip leading zeros
+            serial_norm = str(int(serial))
+            for page in doc:
+                text = page.get_text().upper()
+                if serial in text or serial_norm in text:
+                    doc.close()
+                    return True
+            doc.close()
+            return False
+        except Exception:
+            return False

@@ -20,13 +20,30 @@ def init_db():
     from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
     
-    # Try adding caja_id column to existing repartos table (schema migration)
+    # Try adding columns to existing repartos table (schema migrations)
     try:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE repartos ADD COLUMN caja_id INTEGER"))
             print("Added caja_id column to repartos table (migration).")
     except Exception:
-        # Ignore if column already exists
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN guias_encontradas VARCHAR(2000)"))
+            print("Added guias_encontradas column (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN guias_faltantes VARCHAR(2000)"))
+            print("Added guias_faltantes column (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN resolucion_guias_faltantes VARCHAR(4000)"))
+            print("Added resolucion_guias_faltantes column (migration).")
+    except Exception:
         pass
         
     print("Database tables initialized successfully.")

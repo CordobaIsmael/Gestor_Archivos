@@ -26,6 +26,7 @@ class ResolveRequest(BaseModel):
     sucursal: str
     nro_reparto: str
     salida_path: Optional[str] = None
+    resolucion_guias_faltantes: Optional[dict] = None
 
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
@@ -93,7 +94,8 @@ def resolve_reparto(
             sucursal=data.sucursal,
             nro_reparto=data.nro_reparto,
             db=db,
-            custom_salida=custom_salida
+            custom_salida=custom_salida,
+            resolucion_guias_faltantes=data.resolucion_guias_faltantes
         )
         return {
             "status": "success",

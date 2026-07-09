@@ -190,6 +190,13 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
         with col_form:
             st.markdown("##### 🛠️ Datos del Reparto")
             
+            # Show missing and found guias alerts
+            if reparto.get("guias_faltantes"):
+                st.error(f"⚠️ **Guías Faltantes:** {reparto['guias_faltantes'].replace(',', ', ')}")
+            if reparto.get("guias_encontradas"):
+                with st.expander("✅ Guías Encontradas"):
+                    st.write(reparto["guias_encontradas"].replace(",", ", "))
+            
             # Button to open the folder in File Explorer
             if st.button("📂 Abrir Carpeta en Explorador", key=f"open_rev_folder_{reparto['id']}", use_container_width=True):
                 try:
@@ -242,6 +249,41 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                 key=f"nro_{reparto['id']}"
             )
             
+            # Form for missing guias resolution status
+            resolucion_inputs = {}
+            if reparto.get("guias_faltantes"):
+                st.markdown("---")
+                st.markdown("##### 📝 Declaración de Guías Faltantes")
+                st.info("Para completar la organización manual, por favor indica el estado de cada guía ausente:")
+                faltantes_list = [g.strip() for g in reparto["guias_faltantes"].split(",") if g.strip()]
+                for g in faltantes_list:
+                    st.markdown(f"📍 **Guía: `{g}`**")
+                    est_key = f"est_missing_{reparto['id']}_{g}"
+                    obs_key = f"obs_missing_{reparto['id']}_{g}"
+                    
+                    estado_guia = st.selectbox(
+                        f"Estado de {g}:",
+                        options=[
+                            "La guía sí está en el reparto",
+                            "La guía volvió a depósito",
+                            "Otro"
+                        ],
+                        key=est_key
+                    )
+                    
+                    observacion = ""
+                    if estado_guia == "Otro":
+                        observacion = st.text_input(
+                            f"Observación de {g}:",
+                            key=obs_key,
+                            placeholder="Ej. Se mojó el papel / Se entregará mañana..."
+                        )
+                        
+                    resolucion_inputs[g] = {
+                        "estado": estado_guia,
+                        "observacion": observacion
+                    }
+            
             # Resolve button
             st.write("")
             if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True, disabled=active_caja is None):
@@ -257,7 +299,8 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "fecha": fecha.isoformat(),
                         "sucursal": sucursal.strip(),
                         "nro_reparto": nro_reparto.strip(),
-                        "salida_path": salida_path.strip() if salida_path else None
+                        "salida_path": salida_path.strip() if salida_path else None,
+                        "resolucion_guias_faltantes": resolucion_inputs if resolucion_inputs else None
                     }
                     
                     try:

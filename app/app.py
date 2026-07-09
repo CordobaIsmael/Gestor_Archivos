@@ -279,7 +279,22 @@ with tab_search:
                             f"<span class='premium-badge {estado_badge}'>{estado_text}</span>", 
                             unsafe_allow_html=True
                         )
-                        st.markdown(f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])}")
+                        st.markdown(
+                            f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])} | "
+                            f"📦 **Caja:** `{r.get('caja_codigo') or 'S/C'}`"
+                        )
+                        if r.get("guias_faltantes"):
+                            st.markdown(f"⚠️ **Guías Faltantes:** `{r['guias_faltantes'].replace(',', ', ')}`")
+                            resolucion_str = r.get("resolucion_guias_faltantes")
+                            if resolucion_str:
+                                import json
+                                try:
+                                    resolucion_dict = json.loads(resolucion_str)
+                                    for g, data in resolucion_dict.items():
+                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
+                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
+                                except Exception:
+                                    pass
                         st.markdown(f"**Ruta:** `{r['ruta_nueva']}`")
                     with col_btn:
                         st.write("")
@@ -314,6 +329,7 @@ with tab_organizados:
                 "Sucursal": r["sucursal"],
                 "Nro Reparto": r["nro_reparto"],
                 "Caja": r.get("caja_codigo") or "S/C",
+                "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
                 "Carpeta Original": ruta_ori,
                 "Ruta Destino": ruta_nue
             })
@@ -333,6 +349,7 @@ with tab_organizados:
                 "Sucursal": st.column_config.TextColumn(width="small"),
                 "Nro Reparto": st.column_config.TextColumn(width="medium"),
                 "Caja": st.column_config.TextColumn(width="small"),
+                "Guías Faltantes": st.column_config.TextColumn(width="medium"),
                 "Carpeta Original": st.column_config.TextColumn(width="medium"),
                 "Ruta Destino": st.column_config.TextColumn(width="large"),
             }
@@ -367,6 +384,19 @@ with tab_organizados:
                             f"**Caja:** {reparto_sel.get('caja_codigo') or 'S/C'}"
                         )
                         st.markdown(f"**Ruta Destino Completa:** `{reparto_sel['ruta_nueva']}`")
+                        if reparto_sel.get("guias_faltantes"):
+                            st.markdown(f"⚠️ **Guías Faltantes:** `{reparto_sel['guias_faltantes'].replace(',', ', ')}`")
+                            resolucion_str = reparto_sel.get("resolucion_guias_faltantes")
+                            if resolucion_str:
+                                import json
+                                try:
+                                    resolucion_dict = json.loads(resolucion_str)
+                                    st.markdown("**🔍 Resolución de Guías Faltantes:**")
+                                    for g, data in resolucion_dict.items():
+                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
+                                        st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
+                                except Exception:
+                                    pass
                     with col_action:
                         st.write("")  # Vertical alignment
                         if st.button("📂 Abrir Carpeta", key="btn_open_organized", use_container_width=True):

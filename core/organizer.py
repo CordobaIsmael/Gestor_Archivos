@@ -81,6 +81,7 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
         pdf_files = list(folder.glob("*.pdf"))  # scan only direct PDFs inside this folder
         
         metadata_found = None
+        hoja_pdf_path = None
         
         # Look for the Hoja de Reparto among the PDFs in the folder
         for pdf_path in pdf_files:
@@ -89,13 +90,46 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
                 # Check if all critical fields are found
                 if metadata.get("empresa") and metadata.get("fecha") and metadata.get("sucursal") and metadata.get("nro_reparto"):
                     metadata_found = metadata
+                    hoja_pdf_path = pdf_path
                     break # Found the valid Hoja de Reparto
                 else:
                     # Keep track of partially found metadata in case no perfect match is found
                     if not metadata_found:
                         metadata_found = metadata
+                        hoja_pdf_path = pdf_path
 
         original_path_str = str(folder.resolve())
+
+        # Check expected vs physical guias if a Hoja de Reparto was found
+        guias_encontradas_str = None
+        guias_faltantes_str = None
+        has_missing_guias = False
+        
+        if hoja_pdf_path:
+            expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
+            other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
+            
+            encontradas_acc = []
+            faltantes_acc = []
+            for g in expected_guias:
+                parts = g.split(".")
+                if len(parts) >= 3:
+                    serial = parts[2]
+                    found = False
+                    for other_pdf in other_pdfs:
+                        if PDFReader.check_pdf_contains_serial(other_pdf, serial):
+                            found = True
+                            break
+                    if found:
+                        encontradas_acc.append(g)
+                    else:
+                        faltantes_acc.append(g)
+                else:
+                    faltantes_acc.append(g)
+            
+            guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
+            guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
+            has_missing_guias = len(faltantes_acc) > 0
 
         # Check if the detected sucursal is officially valid
         is_valid_sucursal = (
@@ -104,12 +138,13 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
             metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
         )
 
-        # If a complete Hoja de Reparto was found with all metadata and a valid sucursal
+        # If a complete Hoja de Reparto was found with all metadata, valid sucursal AND no missing guias
         if (metadata_found and 
             metadata_found["empresa"] and 
             metadata_found["fecha"] and 
             is_valid_sucursal and 
-            metadata_found["nro_reparto"]):
+            metadata_found["nro_reparto"] and
+            not has_missing_guias):
             
             empresa = metadata_found["empresa"]
             sucursal = metadata_found["sucursal"]
@@ -135,7 +170,9 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
                     ruta_original=original_path_str,
                     ruta_nueva=str(final_dest.resolve()),
                     estado="ORGANIZADO",
-                    caja_id=caja_id
+                    caja_id=caja_id,
+                    guias_encontradas=guias_encontradas_str,
+                    guias_faltantes=None
                 )
                 db.add(reparto_db)
                 db.commit()
@@ -147,18 +184,26 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
             except Exception as e:
                 # If moving failed, send to revision
                 print(f"Error moving organized folder {folder.name}: {e}")
-                send_to_revision(folder, db, results, metadata_found, original_path_str)
+                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str)
                 
         else:
-            # Metadata missing or no Hoja de Reparto found -> Move to REVISION
-            send_to_revision(folder, db, results, metadata_found, original_path_str)
+            # Metadata missing, invalid sucursal or missing guias -> Move to REVISION
+            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str)
             
     # Clean up empty directories under the scanned path
     clean_empty_directories(entrada_path)
     
     return results
 
-def send_to_revision(folder_path: Path, db: Session, results: dict, metadata_found: dict, original_path_str: str):
+def send_to_revision(
+    folder_path: Path, 
+    db: Session, 
+    results: dict, 
+    metadata_found: dict, 
+    original_path_str: str,
+    guias_encontradas: str = None,
+    guias_faltantes: str = None
+):
     """Helper to move a folder to REVISION and log it in the database."""
     dest_path = Path(settings.REVISION) / folder_path.name
     try:
@@ -193,7 +238,9 @@ def send_to_revision(folder_path: Path, db: Session, results: dict, metadata_fou
             ruta_original=original_path_str,
             ruta_nueva=str(final_dest.resolve()),
             estado="EN_REVISION",
-            caja_id=caja_id
+            caja_id=caja_id,
+            guias_encontradas=guias_encontradas,
+            guias_faltantes=guias_faltantes
         )
         db.add(reparto_db)
         db.commit()
@@ -212,7 +259,8 @@ def resolve_revision_folder(
     sucursal: str, 
     nro_reparto: str, 
     db: Session,
-    custom_salida: Path = None
+    custom_salida: Path = None,
+    resolucion_guias_faltantes: dict = None
 ) -> Dict[str, Any]:
     """
     Manually resolves a folder that was in REVISION.
@@ -234,6 +282,42 @@ def resolve_revision_folder(
     if not src_path.exists():
         raise FileNotFoundError(f"Source folder in Revision does not exist: {src_path}")
         
+    # Re-evaluate guias completeness using the PDFs in src_path before we move it
+    pdf_files = list(src_path.glob("*.pdf"))
+    hoja_pdf_path = None
+    for pdf_path in pdf_files:
+        meta = PDFReader.extract_metadata(pdf_path)
+        if meta.get("is_hoja_reparto"):
+            hoja_pdf_path = pdf_path
+            break
+            
+    guias_encontradas_str = None
+    guias_faltantes_str = None
+    if hoja_pdf_path:
+        expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
+        other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
+        
+        encontradas_acc = []
+        faltantes_acc = []
+        for g in expected_guias:
+            parts = g.split(".")
+            if len(parts) >= 3:
+                serial = parts[2]
+                found = False
+                for other_pdf in other_pdfs:
+                    if PDFReader.check_pdf_contains_serial(other_pdf, serial):
+                        found = True
+                        break
+                if found:
+                    encontradas_acc.append(g)
+                else:
+                    faltantes_acc.append(g)
+            else:
+                faltantes_acc.append(g)
+        
+        guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
+        guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
+
     salida_base = custom_salida if custom_salida is not None else Path(settings.SALIDA)
     dest_path = get_organized_path(
         base_salida=salida_base,
@@ -253,6 +337,14 @@ def resolve_revision_folder(
     reparto.nro_reparto = nro_reparto
     reparto.ruta_nueva = str(final_dest.resolve())
     reparto.estado = "ORGANIZADO"
+    reparto.guias_encontradas = guias_encontradas_str
+    reparto.guias_faltantes = guias_faltantes_str
+    
+    import json
+    if resolucion_guias_faltantes:
+        reparto.resolucion_guias_faltantes = json.dumps(resolucion_guias_faltantes)
+    else:
+        reparto.resolucion_guias_faltantes = None
     
     # If no box is assigned, assign the currently active one
     if not reparto.caja_id:
