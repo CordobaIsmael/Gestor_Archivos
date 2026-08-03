@@ -27,6 +27,7 @@ class ResolveRequest(BaseModel):
     nro_reparto: str
     salida_path: Optional[str] = None
     resolucion_guias_faltantes: Optional[dict] = None
+    modo_historico: Optional[bool] = False
 
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
@@ -108,7 +109,8 @@ def resolve_reparto(
             nro_reparto=data.nro_reparto,
             db=db,
             custom_salida=custom_salida,
-            resolucion_guias_faltantes=data.resolucion_guias_faltantes
+            resolucion_guias_faltantes=data.resolucion_guias_faltantes,
+            modo_historico=data.modo_historico or False
         )
         return {
             "status": "success",

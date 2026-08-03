@@ -298,7 +298,13 @@ with tab_revision:
         paginated_revision = en_revision[start_idx:end_idx]
         
         for reparto in paginated_revision:
-            render_reparto_row(reparto, force_rerun, active_caja=active_caja, salida_path=salida_path)
+            render_reparto_row(
+                reparto, 
+                force_rerun, 
+                active_caja=active_caja, 
+                salida_path=salida_path,
+                modo_historico=modo_historico
+            )
             
         st.markdown("---")
         

@@ -285,7 +285,8 @@ def resolve_revision_folder(
     nro_reparto: str, 
     db: Session,
     custom_salida: Path = None,
-    resolucion_guias_faltantes: dict = None
+    resolucion_guias_faltantes: dict = None,
+    modo_historico: bool = False
 ) -> Dict[str, Any]:
     """
     Manually resolves a folder that was in REVISION.
@@ -377,8 +378,16 @@ def resolve_revision_folder(
     else:
         reparto.resolucion_guias_faltantes = None
     
-    # If no box is assigned, assign the currently active one
-    if not reparto.caja_id:
+    # If in historical mode, assign to the virtual box. Otherwise, assign the currently active physical box.
+    if modo_historico:
+        hist_caja = db.query(Caja).filter(Caja.codigo == "CAJA-HISTORICA-DIGITAL").first()
+        if not hist_caja:
+            hist_caja = Caja(codigo="CAJA-HISTORICA-DIGITAL", estado="HISTORICA")
+            db.add(hist_caja)
+            db.commit()
+            db.refresh(hist_caja)
+        reparto.caja_id = hist_caja.id
+    elif not reparto.caja_id:
         active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
         if not active_caja:
             raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de organizar el reparto.")
