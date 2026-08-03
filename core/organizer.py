@@ -180,6 +180,12 @@ def process_incoming_folders(
             try:
                 final_dest = move_directory(folder, dest_path)
                 
+                # Rename organized files
+                try:
+                    rename_organized_files(final_dest, sucursal, nro_reparto)
+                except Exception as re_err:
+                    print(f"Error renaming organized files: {re_err}")
+                
                 # Add DB record
                 reparto_db = Reparto(
                     empresa=empresa,
@@ -349,6 +355,12 @@ def resolve_revision_folder(
     # Move folder from Revision to Salida
     final_dest = move_directory(src_path, dest_path)
     
+    # Rename organized files
+    try:
+        rename_organized_files(final_dest, sucursal, nro_reparto)
+    except Exception as re_err:
+        print(f"Error renaming organized files: {re_err}")
+    
     # Update DB record
     reparto.empresa = empresa
     reparto.fecha = fecha_obj
@@ -377,3 +389,81 @@ def resolve_revision_folder(
     
     print(f"Manually resolved Reparto #{reparto_id}: moved to {final_dest}")
     return reparto.to_dict()
+
+def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str):
+    """
+    Renames the PDFs in the organized folder.
+    The Hoja de Reparto is identified and can be renamed to {sucursal}{nro_reparto}_reparto.pdf
+    The rest of the PDFs are matched against expected guias and renamed to {sucursal}{nro_reparto}_{guia}.pdf
+    """
+    pdf_files = list(organized_dir.glob("*.pdf"))
+    if not pdf_files:
+        return
+        
+    # 1. Identify the Hoja de Reparto (first file containing critical metadata)
+    hoja_pdf_path = None
+    metadata_found = None
+    
+    for pdf_path in pdf_files:
+        metadata = PDFReader.read_metadata(pdf_path)
+        if metadata.get("empresa") and metadata.get("fecha") and metadata.get("sucursal") and metadata.get("nro_reparto"):
+            metadata_found = metadata
+            hoja_pdf_path = pdf_path
+            break
+            
+    # If no perfect match, fallback to search partially
+    if not hoja_pdf_path:
+        for pdf_path in pdf_files:
+            metadata = PDFReader.read_metadata(pdf_path)
+            if metadata.get("nro_reparto"):
+                hoja_pdf_path = pdf_path
+                break
+                
+    if not hoja_pdf_path:
+        # Fallback to the first PDF alphabetically
+        pdf_files.sort()
+        hoja_pdf_path = pdf_files[0]
+        
+    # 2. Extract expected guias
+    expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
+    other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
+    
+    # 3. Match and rename guias
+    renamed_paths = set()
+    prefix = f"{sucursal.upper().strip()}{nro_reparto.strip()}"
+    
+    for g in expected_guias:
+        parts = g.split(".")
+        if len(parts) >= 3:
+            serial = parts[2]
+            for other_pdf in other_pdfs:
+                if other_pdf in renamed_paths:
+                    continue
+                if PDFReader.check_pdf_contains_serial(other_pdf, serial):
+                    # We match this PDF! Rename it to prefix_guia.pdf
+                    new_name = f"{prefix}_{g}.pdf"
+                    new_path = organized_dir / new_name
+                    try:
+                        # Ensure we don't overwrite if it somehow already has that name
+                        if other_pdf != new_path:
+                            # If new_path already exists (e.g. duplicate check), generate safe name
+                            if new_path.exists():
+                                new_path = new_path.with_name(f"{new_path.stem}_dup.pdf")
+                            other_pdf.rename(new_path)
+                            renamed_paths.add(new_path)
+                            print(f"Renamed guide PDF: {other_pdf.name} -> {new_path.name}")
+                    except Exception as e:
+                        print(f"Error renaming guide PDF {other_pdf.name}: {e}")
+                    break
+                    
+    # 4. Finally, rename the Hoja de Reparto to prefix_reparto.pdf
+    try:
+        new_hoja_name = f"{prefix}_reparto.pdf"
+        new_hoja_path = organized_dir / new_hoja_name
+        if hoja_pdf_path != new_hoja_path:
+            if new_hoja_path.exists():
+                new_hoja_path = new_hoja_path.with_name(f"{new_hoja_path.stem}_dup.pdf")
+            hoja_pdf_path.rename(new_hoja_path)
+            print(f"Renamed Hoja de Reparto: {hoja_pdf_path.name} -> {new_hoja_path.name}")
+    except Exception as e:
+        print(f"Error renaming Hoja de Reparto {hoja_pdf_path.name}: {e}")
