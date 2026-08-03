@@ -414,7 +414,7 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
     metadata_found = None
     
     for pdf_path in pdf_files:
-        metadata = PDFReader.read_metadata(pdf_path)
+        metadata = PDFReader.extract_metadata(pdf_path)
         if metadata.get("empresa") and metadata.get("fecha") and metadata.get("sucursal") and metadata.get("nro_reparto"):
             metadata_found = metadata
             hoja_pdf_path = pdf_path
@@ -423,7 +423,7 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
     # If no perfect match, fallback to search partially
     if not hoja_pdf_path:
         for pdf_path in pdf_files:
-            metadata = PDFReader.read_metadata(pdf_path)
+            metadata = PDFReader.extract_metadata(pdf_path)
             if metadata.get("nro_reparto"):
                 hoja_pdf_path = pdf_path
                 break
