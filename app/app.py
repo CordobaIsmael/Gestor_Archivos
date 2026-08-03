@@ -257,8 +257,66 @@ with tab_revision:
     if not en_revision:
         st.success("¡Excelente! No hay carpetas pendientes de revisión.")
     else:
-        for reparto in en_revision:
+        # Pagination settings
+        ITEMS_PER_PAGE = 10
+        total_items = len(en_revision)
+        import math
+        total_pages = math.ceil(total_items / ITEMS_PER_PAGE)
+        
+        # Initialize page state
+        if "revision_page" not in st.session_state:
+            st.session_state["revision_page"] = 1
+            
+        # Limit page bounds
+        if st.session_state["revision_page"] > total_pages:
+            st.session_state["revision_page"] = max(1, total_pages)
+            
+        current_page = st.session_state["revision_page"]
+        
+        # Render top pagination controls
+        col_prev, col_page, col_next = st.columns([1, 2, 1])
+        with col_prev:
+            if st.button("⬅️ Anterior", disabled=(current_page == 1), key="page_prev_top", use_container_width=True):
+                st.session_state["revision_page"] = current_page - 1
+                st.rerun()
+        with col_page:
+            st.markdown(
+                f"<div style='text-align: center; font-weight: bold;'>Página {current_page} de {total_pages}</div>"
+                f"<div style='text-align: center; color: #888; font-size: 0.85rem;'>Mostrando {((current_page-1)*ITEMS_PER_PAGE)+1}-{min(total_items, current_page*ITEMS_PER_PAGE)} de {total_items} casos</div>",
+                unsafe_allow_html=True
+            )
+        with col_next:
+            if st.button("Siguiente ➡️", disabled=(current_page == total_pages), key="page_next_top", use_container_width=True):
+                st.session_state["revision_page"] = current_page + 1
+                st.rerun()
+                
+        st.markdown("---")
+        
+        # Get paginated slice
+        start_idx = (current_page - 1) * ITEMS_PER_PAGE
+        end_idx = start_idx + ITEMS_PER_PAGE
+        paginated_revision = en_revision[start_idx:end_idx]
+        
+        for reparto in paginated_revision:
             render_reparto_row(reparto, force_rerun, active_caja=active_caja, salida_path=salida_path)
+            
+        st.markdown("---")
+        
+        # Render bottom pagination controls
+        col_prev_b, col_page_b, col_next_b = st.columns([1, 2, 1])
+        with col_prev_b:
+            if st.button("⬅️ Anterior", disabled=(current_page == 1), key="page_prev_bottom", use_container_width=True):
+                st.session_state["revision_page"] = current_page - 1
+                st.rerun()
+        with col_page_b:
+            st.markdown(
+                f"<div style='text-align: center; font-weight: bold;'>Página {current_page} de {total_pages}</div>",
+                unsafe_allow_html=True
+            )
+        with col_next_b:
+            if st.button("Siguiente ➡️", disabled=(current_page == total_pages), key="page_next_bottom", use_container_width=True):
+                st.session_state["revision_page"] = current_page + 1
+                st.rerun()
 
 with tab_search:
     st.markdown("### 🔍 Buscador de Repartos")
