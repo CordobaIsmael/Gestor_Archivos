@@ -51,7 +51,13 @@ def clean_empty_directories(root_path: Path):
             except Exception as e:
                 print(f"Error removing empty directory {p}: {e}")
 
-def process_incoming_folders(db: Session, custom_path: Path = None, custom_salida: Path = None) -> Dict[str, List[Dict[str, Any]]]:
+def process_incoming_folders(
+    db: Session, 
+    custom_path: Path = None, 
+    custom_salida: Path = None,
+    modo_historico: bool = False,
+    modo_flexible: bool = False
+) -> Dict[str, List[Dict[str, Any]]]:
     """
     Scans the specified folder (or settings.ENTRADA) recursively for folders containing PDFs,
     processes each one, organizes them, and records metadata in the database.
@@ -67,11 +73,22 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
         print(f"Path does not exist: {entrada_path}")
         return results
         
-    # Get active box
-    active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-    if not active_caja:
-        raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de procesar entrada.")
-    caja_id = active_caja.id
+    caja_id = None
+    if modo_historico:
+        # Search or create the virtual CAJA-HISTORICA-DIGITAL box
+        hist_caja = db.query(Caja).filter(Caja.codigo == "CAJA-HISTORICA-DIGITAL").first()
+        if not hist_caja:
+            hist_caja = Caja(codigo="CAJA-HISTORICA-DIGITAL", estado="HISTORICA")
+            db.add(hist_caja)
+            db.commit()
+            db.refresh(hist_caja)
+        caja_id = hist_caja.id
+    else:
+        # Get active box
+        active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        if not active_caja:
+            raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de procesar entrada.")
+        caja_id = active_caja.id
         
     # Find all folders containing PDF files directly, sorted by depth (deepest first)
     pdf_folders = find_folders_with_pdfs(entrada_path)
@@ -130,6 +147,8 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
             guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
             guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
             has_missing_guias = len(faltantes_acc) > 0
+            if modo_flexible or modo_historico:
+                has_missing_guias = False
 
         # Check if the detected sucursal is officially valid
         is_valid_sucursal = (
@@ -172,7 +191,7 @@ def process_incoming_folders(db: Session, custom_path: Path = None, custom_salid
                     estado="ORGANIZADO",
                     caja_id=caja_id,
                     guias_encontradas=guias_encontradas_str,
-                    guias_faltantes=None
+                    guias_faltantes=guias_faltantes_str
                 )
                 db.add(reparto_db)
                 db.commit()

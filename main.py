@@ -31,12 +31,16 @@ class ResolveRequest(BaseModel):
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
     salida_path: Optional[str] = None
+    modo_historico: Optional[bool] = False
+    modo_flexible: Optional[bool] = False
 
 @app.post("/api/process", summary="Process incoming folders")
 def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends(get_db)):
     try:
         custom_path = None
         custom_salida = None
+        modo_historico = False
+        modo_flexible = False
         
         if data:
             from pathlib import Path
@@ -52,7 +56,16 @@ def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends
             if data.salida_path:
                 custom_salida = Path(data.salida_path)
             
-        results = process_incoming_folders(db, custom_path=custom_path, custom_salida=custom_salida)
+            modo_historico = data.modo_historico or False
+            modo_flexible = data.modo_flexible or False
+            
+        results = process_incoming_folders(
+            db, 
+            custom_path=custom_path, 
+            custom_salida=custom_salida,
+            modo_historico=modo_historico,
+            modo_flexible=modo_flexible
+        )
         return {
             "status": "success",
             "message": "Procesamiento completado.",

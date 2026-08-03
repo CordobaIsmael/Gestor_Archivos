@@ -162,11 +162,27 @@ with col_sal_btn:
 st.sidebar.markdown(f"**Revisión:** `{settings.REVISION}`")
 st.sidebar.markdown("---")
 
+# Select processing mode
+procesamiento_options = [
+    "Puesta al Día (Etapa 2 - Flexible)",
+    "Estándar (Etapa 3 - Estricto)",
+    "Histórico Anterior (Virtual)"
+]
+modo_proc = st.sidebar.selectbox(
+    "Modo de Procesamiento",
+    options=procesamiento_options,
+    index=0,  # Default to Stage 2 (Flexible)
+    help="Determina el nivel de validación y destino. Etapa 2 desactiva el control de guías faltantes para ponerse al día. Histórico guarda en la caja virtual."
+)
+
+modo_historico = modo_proc == "Histórico Anterior (Virtual)"
+modo_flexible = modo_proc == "Puesta al Día (Etapa 2 - Flexible)"
+
 # Process button in sidebar
-if active_caja is None:
+if active_caja is None and not modo_historico:
     st.sidebar.warning("⚠️ Debes abrir una caja activa para poder procesar la entrada.")
 
-if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled=active_caja is None):
+if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled=(active_caja is None and not modo_historico)):
     if not scan_path.strip():
         st.sidebar.error("Por favor ingresa una ruta válida.")
     else:
@@ -174,7 +190,9 @@ if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled
             try:
                 payload = {
                     "path": scan_path.strip(),
-                    "salida_path": salida_path.strip()
+                    "salida_path": salida_path.strip() if salida_path else None,
+                    "modo_historico": modo_historico,
+                    "modo_flexible": modo_flexible
                 }
                 res = requests.post(f"{API_URL}/api/process", json=payload)
                 if res.status_code == 200:
