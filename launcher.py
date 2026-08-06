@@ -13,13 +13,26 @@ def launch():
     # Base workspace directory
     base_dir = Path(__file__).resolve().parent
     
+    import socket
+    def get_local_ip():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "localhost"
+
+    local_ip = get_local_ip()
+
     # 1. Start FastAPI Backend (Uvicorn)
     backend_cmd = [
         sys.executable, "-m", "uvicorn", "main:app",
-        "--host", "127.0.0.1",
+        "--host", "0.0.0.0",
         "--port", "8000"
     ]
-    print("-> Iniciando Backend (FastAPI) en http://127.0.0.1:8000...")
+    print("-> Iniciando Backend (FastAPI) en http://0.0.0.0:8000...")
     backend_proc = subprocess.Popen(
         backend_cmd, 
         cwd=str(base_dir)
@@ -35,19 +48,23 @@ def launch():
 
     # 2. Start Streamlit Frontend
     frontend_cmd = [
-        sys.executable, "-m", "streamlit", "run", "app/app.py"
+        sys.executable, "-m", "streamlit", "run", "app/app.py",
+        "--server.address", "0.0.0.0",
+        "--server.port", "8501"
     ]
-    print("-> Iniciando Frontend (Streamlit) en http://127.0.0.1:8501...")
+    print("-> Iniciando Frontend (Streamlit) en http://0.0.0.0:8501...")
     frontend_proc = subprocess.Popen(
         frontend_cmd,
         cwd=str(base_dir)
     )
 
     print("\n==================================================")
-    print("[OK] Aplicacion corriendo con exito!")
-    print("   - API Backend: http://127.0.0.1:8000")
-    print("   - Swagger Docs: http://127.0.0.1:8000/docs")
-    print("   - Frontend Streamlit: http://127.0.0.1:8501")
+    print("[OK] ¡Aplicación corriendo con éxito!")
+    print(f"   - Acceso Local (esta PC): http://localhost:8501")
+    if local_ip != "localhost":
+        print(f"   - Acceso en Red Local (otras PC): http://{local_ip}:8501")
+    print(f"   - API Backend: http://localhost:8000")
+    print(f"   - Swagger Docs: http://localhost:8000/docs")
     print("Presiona Ctrl+C para detener ambos procesos.")
     print("==================================================\n")
 
