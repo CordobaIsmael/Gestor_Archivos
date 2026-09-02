@@ -31,3 +31,6 @@ Revision/
 # Scanned PDFs and generated Word labels
 *.pdf
 *.docx
+
+# User Local Configuration
+user_config.json

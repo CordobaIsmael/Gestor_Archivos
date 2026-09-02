@@ -52,3 +52,35 @@ class Settings(BaseSettings):
 settings = Settings()
 # Ensure directories are created on import
 settings.create_directories()
+
+# Path persistence utilities
+import json
+CONFIG_FILE = settings.BASE_DIR / "user_config.json"
+
+def get_persisted_paths() -> dict:
+    """Loads saved input/output directory paths from user_config.json."""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            print(f"Error reading user_config.json: {e}")
+    return {
+        "scan_path": str(Path(settings.ENTRADA).resolve()),
+        "salida_path": str(Path(settings.SALIDA).resolve())
+    }
+
+def save_persisted_paths(scan_path: str = None, salida_path: str = None):
+    """Saves directory paths to user_config.json to persist across sessions."""
+    data = get_persisted_paths()
+    if scan_path is not None and scan_path.strip():
+        data["scan_path"] = str(Path(scan_path).resolve())
+    if salida_path is not None and salida_path.strip():
+        data["salida_path"] = str(Path(salida_path).resolve())
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving user_config.json: {e}")

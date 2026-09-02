@@ -11,7 +11,7 @@ root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-from config.settings import settings
+from config.settings import settings, get_persisted_paths, save_persisted_paths
 
 def select_directory_dialog(initial_dir: str) -> str:
     """Opens a native directory selector dialog in a separate subprocess to ensure thread safety."""
@@ -109,27 +109,40 @@ st.sidebar.info(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📂 Selección de Carpeta")
 
-# Handle session state for directory paths to keep them in sync
+# Load persistent directory paths from user_config.json
+persisted_paths = get_persisted_paths()
+
 if "scan_path_input" not in st.session_state:
-    st.session_state["scan_path_input"] = str(Path(settings.ENTRADA).resolve())
+    st.session_state["scan_path_input"] = persisted_paths.get("scan_path", str(Path(settings.ENTRADA).resolve()))
 
 if "salida_path_input" not in st.session_state:
-    st.session_state["salida_path_input"] = str(Path(settings.SALIDA).resolve())
+    st.session_state["salida_path_input"] = persisted_paths.get("salida_path", str(Path(settings.SALIDA).resolve()))
 
 # Apply picker updates BEFORE widgets are instantiated to avoid StreamlitAPIException
 if "selected_scan_path" in st.session_state:
-    st.session_state["scan_path_input"] = st.session_state.pop("selected_scan_path")
+    new_scan = st.session_state.pop("selected_scan_path")
+    st.session_state["scan_path_input"] = new_scan
+    save_persisted_paths(scan_path=new_scan)
 
 if "selected_salida_path" in st.session_state:
-    st.session_state["salida_path_input"] = st.session_state.pop("selected_salida_path")
+    new_salida = st.session_state.pop("selected_salida_path")
+    st.session_state["salida_path_input"] = new_salida
+    save_persisted_paths(salida_path=new_salida)
+
+def on_scan_path_change():
+    save_persisted_paths(scan_path=st.session_state.get("scan_path_input"))
+
+def on_salida_path_change():
+    save_persisted_paths(salida_path=st.session_state.get("salida_path_input"))
 
 # Folder to scan: Text input + picker button
 col_scan_text, col_scan_btn = st.sidebar.columns([4, 1])
 with col_scan_text:
     scan_path = st.text_input(
         "Carpeta a escanear:",
-        help="Ruta absoluta de la carpeta a procesar.",
-        key="scan_path_input"
+        help="Ruta absoluta de la carpeta a procesar. Se recordará en todas las sesiones.",
+        key="scan_path_input",
+        on_change=on_scan_path_change
     )
 
 with col_scan_btn:
@@ -146,8 +159,9 @@ col_sal_text, col_sal_btn = st.sidebar.columns([4, 1])
 with col_sal_text:
     salida_path = st.text_input(
         "Carpeta de Salida:",
-        help="Ruta absoluta de la carpeta donde se moverán los archivos organizados.",
-        key="salida_path_input"
+        help="Ruta absoluta de la carpeta donde se moverán los archivos organizados. Se recordará en todas las sesiones.",
+        key="salida_path_input",
+        on_change=on_salida_path_change
     )
 
 with col_sal_btn:
