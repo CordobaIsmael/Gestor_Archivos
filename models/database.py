@@ -47,6 +47,8 @@ class Reparto(Base):
     resolucion_guias_faltantes = Column(String(4000), nullable=True)
     guias_sin_firma = Column(String(2000), nullable=True)
     resolucion_guias_sin_firma = Column(String(4000), nullable=True)
+    es_duplicado = Column(Boolean, default=False)
+    motivo_revision = Column(String(500), nullable=True)
     
     # Relationship to Caja
     caja_id = Column(Integer, ForeignKey('cajas.id'), nullable=True)
@@ -72,6 +74,8 @@ class Reparto(Base):
             "resolucion_guias_faltantes": self.resolucion_guias_faltantes,
             "guias_sin_firma": self.guias_sin_firma,
             "resolucion_guias_sin_firma": self.resolucion_guias_sin_firma,
+            "es_duplicado": self.es_duplicado or False,
+            "motivo_revision": self.motivo_revision,
             "caja_id": self.caja_id,
             "caja_codigo": self.caja.codigo if self.caja else None,
             "usuario_id": self.usuario_id,

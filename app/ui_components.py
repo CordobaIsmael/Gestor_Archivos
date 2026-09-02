@@ -190,7 +190,9 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
         with col_form:
             st.markdown("##### 🛠️ Datos del Reparto")
             
-            # Show missing, unsigned, excluded and found guias alerts
+            # Show motivo revision, missing, unsigned, excluded and found guias alerts
+            if reparto.get("motivo_revision"):
+                st.error(f"🛑 **Motivo de Revisión:** {reparto['motivo_revision']}")
             if reparto.get("guias_faltantes"):
                 st.error(f"⚠️ **Guías Faltantes:** {reparto['guias_faltantes'].replace(',', ', ')}")
             if reparto.get("guias_sin_firma"):
@@ -323,8 +325,14 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "observacion": observacion_f
                     }
             
-            # Resolve button
+            # Resolve button & duplicate override
             st.write("")
+            permitir_duplicado = st.checkbox(
+                "⚠️ Permitir guardar como duplicado / reimpresión", 
+                key=f"dup_{reparto['id']}",
+                help="Tilda esta opción si ya existe otro reparto con el mismo número pero deseas guardarlo igualmente."
+            )
+            
             if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True, disabled=(active_caja is None and not modo_historico)):
                 suc_clean = sucursal.strip().upper()
                 if not sucursal.strip() or not nro_reparto.strip():
@@ -343,7 +351,8 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "resolucion_guias_sin_firma": resolucion_firma_inputs if resolucion_firma_inputs else None,
                         "modo_historico": modo_historico,
                         "usuario_id": current_user.get("id") if current_user else None,
-                        "usuario_legajo": current_user.get("legajo") if current_user else None
+                        "usuario_legajo": current_user.get("legajo") if current_user else None,
+                        "permitir_duplicado": permitir_duplicado
                     }
                     
                     try:

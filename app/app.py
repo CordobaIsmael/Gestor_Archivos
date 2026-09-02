@@ -450,9 +450,10 @@ with tab_search:
                 with st.container(border=True):
                     col_det, col_btn = st.columns([4, 1])
                     with col_det:
+                        dup_badge = "<span style='background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; margin-left: 6px;'>DUPLICADO</span>" if r.get("es_duplicado") else ""
                         st.markdown(
                             f"**Reparto:** `{r['sucursal'] or '?'}_{r['nro_reparto'] or '?'}` &nbsp;&nbsp; "
-                            f"<span class='premium-badge {estado_badge}'>{estado_text}</span>", 
+                            f"<span class='premium-badge {estado_badge}'>{estado_text}</span>{dup_badge}", 
                             unsafe_allow_html=True
                         )
                         st.markdown(
@@ -521,6 +522,7 @@ with tab_organizados:
                 "Nro Reparto": r["nro_reparto"],
                 "Caja": r.get("caja_codigo") or "S/C",
                 "Operador": r.get("usuario_legajo") or "S/A",
+                "Duplicado": "⚠️ Sí" if r.get("es_duplicado") else "No",
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
                 "Sin Firma": (r.get("guias_sin_firma") or "").replace(",", ", ") if r.get("guias_sin_firma") else "Ninguna",
                 "No Entregadas": (r.get("guias_no_entregadas") or "").replace(",", ", ") if r.get("guias_no_entregadas") else "Ninguna",
@@ -544,6 +546,7 @@ with tab_organizados:
                 "Nro Reparto": st.column_config.TextColumn(width="medium"),
                 "Caja": st.column_config.TextColumn(width="small"),
                 "Operador": st.column_config.TextColumn(width="small"),
+                "Duplicado": st.column_config.TextColumn(width="small"),
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
                 "Sin Firma": st.column_config.TextColumn(width="medium"),
                 "No Entregadas": st.column_config.TextColumn(width="medium"),
@@ -575,11 +578,13 @@ with tab_organizados:
                 with st.container(border=True):
                     col_info, col_action = st.columns([3, 1])
                     with col_info:
+                        dup_badge_sel = " &nbsp;<span style='background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;'>⚠️ REPARTO DUPLICADO / REIMPRESIÓN</span>" if reparto_sel.get("es_duplicado") else ""
                         st.markdown(
-                            f"📁 **Reparto Seleccionado:** `{reparto_sel['sucursal'] or '?'}_{reparto_sel['nro_reparto'] or '?'}` &nbsp;&nbsp;|&nbsp;&nbsp; "
+                            f"📁 **Reparto Seleccionado:** `{reparto_sel['sucursal'] or '?'}_{reparto_sel['nro_reparto'] or '?'}`{dup_badge_sel} &nbsp;&nbsp;|&nbsp;&nbsp; "
                             f"**Empresa:** {reparto_sel['empresa']} &nbsp;&nbsp;|&nbsp;&nbsp; "
                             f"**Caja:** {reparto_sel.get('caja_codigo') or 'S/C'} &nbsp;&nbsp;|&nbsp;&nbsp; "
-                            f"👤 **Operador:** `{reparto_sel.get('usuario_legajo') or 'S/A'}`"
+                            f"👤 **Operador:** `{reparto_sel.get('usuario_legajo') or 'S/A'}`",
+                            unsafe_allow_html=True
                         )
                         st.markdown(f"**Ruta Destino Completa:** `{reparto_sel['ruta_nueva']}`")
                         if reparto_sel.get("guias_faltantes"):

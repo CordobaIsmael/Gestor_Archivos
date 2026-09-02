@@ -81,6 +81,18 @@ def init_db():
             print("Added usuario_legajo column to cajas (migration).")
     except Exception:
         pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN es_duplicado BOOLEAN DEFAULT 0"))
+            print("Added es_duplicado column to repartos (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN motivo_revision VARCHAR(500)"))
+            print("Added motivo_revision column to repartos (migration).")
+    except Exception:
+        pass
 
     # Bootstrap default admin user 1101 if not exists
     from models.database import Usuario

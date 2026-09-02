@@ -131,6 +131,7 @@ class ResolveRequest(BaseModel):
     modo_historico: Optional[bool] = False
     usuario_id: Optional[int] = None
     usuario_legajo: Optional[str] = None
+    permitir_duplicado: Optional[bool] = False
 
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
@@ -223,7 +224,8 @@ def resolve_reparto(
             resolucion_guias_sin_firma=data.resolucion_guias_sin_firma,
             modo_historico=data.modo_historico or False,
             usuario_id=data.usuario_id,
-            usuario_legajo=data.usuario_legajo
+            usuario_legajo=data.usuario_legajo,
+            permitir_duplicado=data.permitir_duplicado or False
         )
         return {
             "status": "success",

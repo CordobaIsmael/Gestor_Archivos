@@ -176,6 +176,24 @@ def process_incoming_folders(
                 has_missing_guias = False
                 has_unsigned_guias = False
 
+        # Check if this reparto was already organized previously (duplicate detection)
+        is_duplicate = False
+        duplicate_reason = None
+        if metadata_found and metadata_found.get("sucursal") and metadata_found.get("nro_reparto"):
+            suc_chk = metadata_found["sucursal"].upper().strip()
+            num_chk = metadata_found["nro_reparto"].strip()
+            existing_rep = db.query(Reparto).filter(
+                Reparto.sucursal == suc_chk,
+                Reparto.nro_reparto == num_chk,
+                Reparto.estado == "ORGANIZADO"
+            ).first()
+            if existing_rep:
+                is_duplicate = True
+                caja_info = existing_rep.caja.codigo if existing_rep.caja else "S/C"
+                op_info = existing_rep.usuario_legajo or "S/A"
+                fecha_info = existing_rep.fecha.isoformat() if existing_rep.fecha else "S/F"
+                duplicate_reason = f"POSIBLE DUPLICADO: El reparto {suc_chk}_{num_chk} ya fue organizado previamente (Caja: {caja_info}, Operador: {op_info}, Fecha: {fecha_info})."
+
         # Check if the detected sucursal is officially valid
         is_valid_sucursal = (
             metadata_found and 
@@ -183,14 +201,15 @@ def process_incoming_folders(
             metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
         )
 
-        # If a complete Hoja de Reparto was found with all metadata, valid sucursal, no missing guias AND no unsigned guias
+        # If a complete Hoja de Reparto was found with all metadata, valid sucursal, no missing guias, no unsigned guias, AND NOT a duplicate
         if (metadata_found and 
             metadata_found["empresa"] and 
             metadata_found["fecha"] and 
             is_valid_sucursal and 
             metadata_found["nro_reparto"] and
             not has_missing_guias and
-            not has_unsigned_guias):
+            not has_unsigned_guias and
+            not is_duplicate):
             
             empresa = metadata_found["empresa"]
             sucursal = metadata_found["sucursal"]
@@ -228,7 +247,9 @@ def process_incoming_folders(
                     guias_encontradas=guias_encontradas_str,
                     guias_faltantes=guias_faltantes_str,
                     guias_no_entregadas=guias_no_entregadas_str,
-                    guias_sin_firma=guias_sin_firma_str
+                    guias_sin_firma=guias_sin_firma_str,
+                    es_duplicado=False,
+                    motivo_revision=None
                 )
                 db.add(reparto_db)
                 db.commit()
@@ -240,11 +261,22 @@ def process_incoming_folders(
             except Exception as e:
                 # If moving failed, send to revision
                 print(f"Error moving organized folder {folder.name}: {e}")
-                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo)
+                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo, motivo_revision=f"Error al mover carpeta: {e}")
                 
         else:
-            # Metadata missing, invalid sucursal, missing guias or unsigned guias -> Move to REVISION
-            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo)
+            # Metadata missing, invalid sucursal, missing guias, unsigned guias or duplicate -> Move to REVISION
+            motivo = duplicate_reason
+            if not motivo:
+                if has_missing_guias:
+                    motivo = f"Guías faltantes ({guias_faltantes_str})"
+                elif has_unsigned_guias:
+                    motivo = f"Guías sin firma ({guias_sin_firma_str})"
+                elif not is_valid_sucursal:
+                    motivo = "Sucursal inválida o no identificada"
+                else:
+                    motivo = "Metadatos incompletos"
+                    
+            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo, motivo_revision=motivo)
             
     # Clean up empty directories under the scanned path
     clean_empty_directories(entrada_path)
@@ -262,7 +294,8 @@ def send_to_revision(
     guias_sin_firma: str = None,
     guias_no_entregadas: str = None,
     usuario_id: int = None,
-    usuario_legajo: str = None
+    usuario_legajo: str = None,
+    motivo_revision: str = None
 ):
     """Helper to move a folder to REVISION and log it in the database."""
     dest_path = Path(settings.REVISION) / folder_path.name
@@ -310,7 +343,9 @@ def send_to_revision(
             guias_encontradas=guias_encontradas,
             guias_faltantes=guias_faltantes,
             guias_sin_firma=guias_sin_firma,
-            guias_no_entregadas=guias_no_entregadas
+            guias_no_entregadas=guias_no_entregadas,
+            es_duplicado=False,
+            motivo_revision=motivo_revision
         )
         db.add(reparto_db)
         db.commit()
@@ -334,7 +369,8 @@ def resolve_revision_folder(
     resolucion_guias_sin_firma: dict = None,
     modo_historico: bool = False,
     usuario_id: int = None,
-    usuario_legajo: str = None
+    usuario_legajo: str = None,
+    permitir_duplicado: bool = False
 ) -> Dict[str, Any]:
     """
     Manually resolves a folder that was in REVISION.
@@ -352,6 +388,28 @@ def resolve_revision_folder(
         valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
         raise ValueError(f"La sucursal '{sucursal}' no es válida. Debe ser una de: {valid_list}")
         
+    num_clean = nro_reparto.strip()
+    
+    # Check if this reparto code already exists in organized repartos
+    existing_dup = db.query(Reparto).filter(
+        Reparto.id != reparto_id,
+        Reparto.sucursal == sucursal_clean,
+        Reparto.nro_reparto == num_clean,
+        Reparto.estado == "ORGANIZADO"
+    ).first()
+    
+    if existing_dup and not permitir_duplicado:
+        caja_code = existing_dup.caja.codigo if existing_dup.caja else "S/C"
+        op_code = existing_dup.usuario_legajo or "S/A"
+        fecha_dup = existing_dup.fecha.isoformat() if existing_dup.fecha else "S/F"
+        raise ValueError(
+            f"DUPLICADO_DETECTADO: Ya existe un reparto organizado con el código '{sucursal_clean}_{num_clean}' "
+            f"(Caja: {caja_code}, Operador: {op_code}, Fecha: {fecha_dup}). "
+            f"Verifica el número o tilda la opción para permitir guardar como duplicado."
+        )
+
+    is_marked_dup = bool(existing_dup and permitir_duplicado)
+
     src_path = Path(reparto.ruta_nueva)
     if not src_path.exists():
         raise FileNotFoundError(f"Source folder in Revision does not exist: {src_path}")
@@ -432,6 +490,8 @@ def resolve_revision_folder(
     reparto.guias_faltantes = guias_faltantes_str
     reparto.guias_sin_firma = guias_sin_firma_str
     reparto.guias_no_entregadas = guias_no_entregadas_str
+    reparto.es_duplicado = is_marked_dup
+    reparto.motivo_revision = None
     
     if usuario_id:
         reparto.usuario_id = usuario_id
