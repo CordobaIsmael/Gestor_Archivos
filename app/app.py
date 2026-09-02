@@ -386,6 +386,8 @@ with tab_search:
                                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
                                 except Exception:
                                     pass
+                        if r.get("guias_no_entregadas"):
+                            st.markdown(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** `{r['guias_no_entregadas'].replace(',', ', ')}`")
                         st.markdown(f"**Ruta:** `{r['ruta_nueva']}`")
                     with col_btn:
                         st.write("")
@@ -422,6 +424,7 @@ with tab_organizados:
                 "Caja": r.get("caja_codigo") or "S/C",
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
                 "Sin Firma": (r.get("guias_sin_firma") or "").replace(",", ", ") if r.get("guias_sin_firma") else "Ninguna",
+                "No Entregadas": (r.get("guias_no_entregadas") or "").replace(",", ", ") if r.get("guias_no_entregadas") else "Ninguna",
                 "Carpeta Original": ruta_ori,
                 "Ruta Destino": ruta_nue
             })
@@ -443,6 +446,7 @@ with tab_organizados:
                 "Caja": st.column_config.TextColumn(width="small"),
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
                 "Sin Firma": st.column_config.TextColumn(width="medium"),
+                "No Entregadas": st.column_config.TextColumn(width="medium"),
                 "Carpeta Original": st.column_config.TextColumn(width="medium"),
                 "Ruta Destino": st.column_config.TextColumn(width="large"),
             }
@@ -503,6 +507,8 @@ with tab_organizados:
                                         st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
                                 except Exception:
                                     pass
+                        if reparto_sel.get("guias_no_entregadas"):
+                            st.markdown(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** `{reparto_sel['guias_no_entregadas'].replace(',', ', ')}`")
                     with col_action:
                         st.write("")  # Vertical alignment
                         if st.button("📂 Abrir Carpeta", key="btn_open_organized", use_container_width=True):

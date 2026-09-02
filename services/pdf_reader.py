@@ -169,34 +169,148 @@ class PDFReader:
         return metadata
 
     @classmethod
-    def extract_expected_guias(cls, pdf_path: Path) -> list:
-        """Extracts expected guias (format A.34.123456 or X. 2.4623) from the Hoja de Reparto."""
+    def extract_expected_guias_and_exclusions(cls, pdf_path: Path) -> Dict[str, list]:
+        """
+        Extracts all expected guias from the Hoja de Reparto, inspecting the 'NO' checkbox column
+        to identify any guias marked as not delivered (to be excluded from physical digitization control).
+        Returns:
+            {
+                "todas_guias": list,
+                "guias_a_controlar": list,
+                "guias_no_entregadas": list
+            }
+        """
+        result = {
+            "todas_guias": [],
+            "guias_a_controlar": [],
+            "guias_no_entregadas": []
+        }
         try:
+            from PIL import Image
+            import io
+            
             doc = fitz.open(pdf_path)
-            text = ""
-            for page in doc:
-                text += page.get_text()
+            if len(doc) == 0:
+                doc.close()
+                return result
+                
+            page = doc[0]
+            w, h = page.rect.width, page.rect.height
+            words = page.get_text("words")
+            
+            # 1. Locate the 'NO' column position
+            no_x_pos = None
+            for w_item in words:
+                txt = w_item[4].strip().upper()
+                if txt == "NO" and 60 < w_item[1] < 180:
+                    no_x_pos = (w_item[0] + w_item[2]) / 2.0
+                    break
+                    
+            if not no_x_pos:
+                # Estimate from 'IMPORTE' + offset
+                for w_item in words:
+                    txt = w_item[4].strip().upper()
+                    if "IMPORTE" in txt and 60 < w_item[1] < 180:
+                        no_x_pos = w_item[2] + 28.0
+                        break
+                        
+            if not no_x_pos:
+                no_x_pos = w * 0.65
+                
+            # 2. Extract guide occurrences with their y-coordinates
+            pattern = re.compile(r'([A-Z]\s*\.\s*\d+\s*\.\s*\d+)')
+            guide_rows = []
+            
+            # Check text blocks
+            blocks = page.get_text("blocks")
+            for b in blocks:
+                for m in pattern.finditer(b[4]):
+                    code = re.sub(r'\s+', '', m.group(1))
+                    guide_rows.append({
+                        "code": code,
+                        "y_center": (b[1] + b[3]) / 2.0
+                    })
+                    
+            # Check adjacent words
+            for i in range(len(words) - 1):
+                w1 = words[i]
+                w2 = words[i+1]
+                m = pattern.search(f"{w1[4]}{w2[4]}")
+                if m:
+                    code = re.sub(r'\s+', '', m.group(1))
+                    if not any(gr["code"] == code for gr in guide_rows):
+                        guide_rows.append({
+                            "code": code,
+                            "y_center": (w1[1] + w1[3]) / 2.0
+                        })
+                        
+            # If no matches in native text, fallback to OCR
+            if not guide_rows:
+                full_text = ""
+                for p in doc:
+                    full_text += p.get_text()
+                matches = pattern.findall(full_text)
+                if not matches:
+                    tess_exe = cls.find_tesseract()
+                    if tess_exe:
+                        ocr_text = cls.ocr_pdf_page(pdf_path, 0, tess_exe)
+                        matches = pattern.findall(ocr_text)
+                norm_matches = sorted(list(set([re.sub(r'\s+', '', m) for m in matches])))
+                doc.close()
+                result["todas_guias"] = norm_matches
+                result["guias_a_controlar"] = norm_matches
+                return result
+
+            todas = []
+            a_controlar = []
+            no_entregadas = []
+            
+            for gr in guide_rows:
+                code = gr["code"]
+                todas.append(code)
+                yc = gr["y_center"]
+                
+                # Checkbox ROI centered on no_x_pos
+                box_roi = fitz.Rect(no_x_pos - 12, yc - 9, no_x_pos + 12, yc + 9)
+                pix = page.get_pixmap(clip=box_roi, dpi=150)
+                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+                
+                # Analyze inner region (center 60% of the box)
+                w_img, h_img = img.size
+                if w_img > 4 and h_img > 4:
+                    inner_box = img.crop((int(w_img * 0.2), int(h_img * 0.2), int(w_img * 0.8), int(h_img * 0.8)))
+                    inner_pixels = list(inner_box.get_flattened_data())
+                    inner_total = len(inner_pixels)
+                    inner_dark = sum(1 for p in inner_pixels if p < 150)
+                    inner_ratio = (inner_dark / inner_total) * 100 if inner_total > 0 else 0
+                else:
+                    inner_ratio = 0
+                    
+                pixels = list(img.get_flattened_data())
+                total = len(pixels)
+                dark = sum(1 for p in pixels if p < 150)
+                overall_ratio = (dark / total) * 100 if total > 0 else 0
+                
+                # Marked checkbox threshold
+                if inner_ratio >= 10.0 or overall_ratio >= 18.0:
+                    no_entregadas.append(code)
+                else:
+                    a_controlar.append(code)
+                    
             doc.close()
-            
-            # Try matching expected guias in native text
-            pattern = r'[A-Z]\s*\.\s*\d+\s*\.\s*\d+'
-            matches = re.findall(pattern, text)
-            
-            # If no matches in native text, try Tesseract OCR fallback on page 0
-            if not matches:
-                tess_exe = cls.find_tesseract()
-                if tess_exe:
-                    print(f"No expected guias found in native text of {pdf_path.name}. Trying Tesseract OCR...")
-                    ocr_text = cls.ocr_pdf_page(pdf_path, 0, tess_exe)
-                    if ocr_text:
-                        matches = re.findall(pattern, ocr_text)
-            
-            # Normalize by removing all spaces
-            normalized_matches = [re.sub(r'\s+', '', m) for m in matches]
-            return sorted(list(set(normalized_matches)))
+            result["todas_guias"] = sorted(list(set(todas)))
+            result["guias_a_controlar"] = sorted(list(set(a_controlar)))
+            result["guias_no_entregadas"] = sorted(list(set(no_entregadas)))
+            return result
         except Exception as e:
-            print(f"Error extracting expected guias: {e}")
-            return []
+            print(f"Error extracting expected guias with exclusions from {pdf_path.name}: {e}")
+            return result
+
+    @classmethod
+    def extract_expected_guias(cls, pdf_path: Path) -> list:
+        """Extracts guias from Hoja de Reparto that must be controlled (ignoring those marked in 'NO' column)."""
+        res = cls.extract_expected_guias_and_exclusions(pdf_path)
+        return res.get("guias_a_controlar", [])
 
     @classmethod
     def check_pdf_contains_serial(cls, pdf_path: Path, serial: str) -> bool:

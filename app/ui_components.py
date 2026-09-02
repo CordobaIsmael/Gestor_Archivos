@@ -190,11 +190,13 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
         with col_form:
             st.markdown("##### 🛠️ Datos del Reparto")
             
-            # Show missing and found guias alerts
+            # Show missing, unsigned, excluded and found guias alerts
             if reparto.get("guias_faltantes"):
                 st.error(f"⚠️ **Guías Faltantes:** {reparto['guias_faltantes'].replace(',', ', ')}")
             if reparto.get("guias_sin_firma"):
                 st.warning(f"✍️ **Guías Sin Firma:** {reparto['guias_sin_firma'].replace(',', ', ')}")
+            if reparto.get("guias_no_entregadas"):
+                st.info(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** {reparto['guias_no_entregadas'].replace(',', ', ')}")
             if reparto.get("guias_encontradas"):
                 with st.expander("✅ Guías Encontradas"):
                     st.write(reparto["guias_encontradas"].replace(",", ", "))

@@ -20,6 +20,7 @@ class Reparto(Base):
     
     guias_encontradas = Column(String(2000), nullable=True)
     guias_faltantes = Column(String(2000), nullable=True)
+    guias_no_entregadas = Column(String(2000), nullable=True)
     resolucion_guias_faltantes = Column(String(4000), nullable=True)
     guias_sin_firma = Column(String(2000), nullable=True)
     resolucion_guias_sin_firma = Column(String(4000), nullable=True)
@@ -40,6 +41,7 @@ class Reparto(Base):
             "estado": self.estado,
             "guias_encontradas": self.guias_encontradas,
             "guias_faltantes": self.guias_faltantes,
+            "guias_no_entregadas": self.guias_no_entregadas,
             "resolucion_guias_faltantes": self.resolucion_guias_faltantes,
             "guias_sin_firma": self.guias_sin_firma,
             "resolucion_guias_sin_firma": self.resolucion_guias_sin_firma,

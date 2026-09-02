@@ -120,11 +120,16 @@ def process_incoming_folders(
         guias_encontradas_str = None
         guias_faltantes_str = None
         guias_sin_firma_str = None
+        guias_no_entregadas_str = None
         has_missing_guias = False
         has_unsigned_guias = False
         
         if hoja_pdf_path:
-            expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
+            guias_info = PDFReader.extract_expected_guias_and_exclusions(hoja_pdf_path)
+            expected_guias = guias_info.get("guias_a_controlar", [])
+            no_entregadas_list = guias_info.get("guias_no_entregadas", [])
+            guias_no_entregadas_str = ",".join(no_entregadas_list) if no_entregadas_list else None
+            
             other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
             
             encontradas_acc = []
@@ -212,6 +217,7 @@ def process_incoming_folders(
                     caja_id=caja_id,
                     guias_encontradas=guias_encontradas_str,
                     guias_faltantes=guias_faltantes_str,
+                    guias_no_entregadas=guias_no_entregadas_str,
                     guias_sin_firma=guias_sin_firma_str
                 )
                 db.add(reparto_db)
@@ -224,11 +230,11 @@ def process_incoming_folders(
             except Exception as e:
                 # If moving failed, send to revision
                 print(f"Error moving organized folder {folder.name}: {e}")
-                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str)
+                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str)
                 
         else:
             # Metadata missing, invalid sucursal, missing guias or unsigned guias -> Move to REVISION
-            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str)
+            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str)
             
     # Clean up empty directories under the scanned path
     clean_empty_directories(entrada_path)
@@ -243,7 +249,8 @@ def send_to_revision(
     original_path_str: str,
     guias_encontradas: str = None,
     guias_faltantes: str = None,
-    guias_sin_firma: str = None
+    guias_sin_firma: str = None,
+    guias_no_entregadas: str = None
 ):
     """Helper to move a folder to REVISION and log it in the database."""
     dest_path = Path(settings.REVISION) / folder_path.name
@@ -282,7 +289,8 @@ def send_to_revision(
             caja_id=caja_id,
             guias_encontradas=guias_encontradas,
             guias_faltantes=guias_faltantes,
-            guias_sin_firma=guias_sin_firma
+            guias_sin_firma=guias_sin_firma,
+            guias_no_entregadas=guias_no_entregadas
         )
         db.add(reparto_db)
         db.commit()
@@ -338,8 +346,13 @@ def resolve_revision_folder(
     guias_encontradas_str = None
     guias_faltantes_str = None
     guias_sin_firma_str = None
+    guias_no_entregadas_str = None
     if hoja_pdf_path:
-        expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
+        guias_info = PDFReader.extract_expected_guias_and_exclusions(hoja_pdf_path)
+        expected_guias = guias_info.get("guias_a_controlar", [])
+        no_entregadas_list = guias_info.get("guias_no_entregadas", [])
+        guias_no_entregadas_str = ",".join(no_entregadas_list) if no_entregadas_list else None
+        
         other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
         
         encontradas_acc = []
@@ -396,6 +409,7 @@ def resolve_revision_folder(
     reparto.guias_encontradas = guias_encontradas_str
     reparto.guias_faltantes = guias_faltantes_str
     reparto.guias_sin_firma = guias_sin_firma_str
+    reparto.guias_no_entregadas = guias_no_entregadas_str
     
     import json
     if resolucion_guias_faltantes:

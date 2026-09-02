@@ -41,6 +41,12 @@ def init_db():
         pass
     try:
         with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN guias_no_entregadas VARCHAR(2000)"))
+            print("Added guias_no_entregadas column (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
             conn.execute(text("ALTER TABLE repartos ADD COLUMN resolucion_guias_faltantes VARCHAR(4000)"))
             print("Added resolucion_guias_faltantes column (migration).")
     except Exception:
