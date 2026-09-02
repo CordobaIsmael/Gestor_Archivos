@@ -289,6 +289,30 @@ if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_widt
             except Exception as e:
                 st.sidebar.error(f"No se pudo conectar al servidor backend: {e}")
 
+# Real-Time Watcher status in sidebar
+try:
+    r_watch = requests.get(f"{API_URL}/api/watcher/status")
+    if r_watch.status_code == 200:
+        w_data = r_watch.json()
+        w_enabled = w_data.get("enabled", False)
+        w_processing = w_data.get("is_processing", False)
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📡 Auto-Escaneo en Vivo")
+        if w_processing:
+            st.sidebar.info("🔄 **Procesando escaneos en segundo plano...**")
+        elif w_enabled:
+            st.sidebar.success("🟢 **Vigilancia Activa** (Auto-procesa al escanear)")
+        else:
+            st.sidebar.warning("⏸️ **Vigilancia Pausada**")
+            
+        btn_w_txt = "⏸️ Pausar Auto-Escaneo" if w_enabled else "▶️ Reanudar Auto-Escaneo"
+        if st.sidebar.button(btn_w_txt, use_container_width=True, key="btn_toggle_watcher"):
+            requests.post(f"{API_URL}/api/watcher/toggle")
+            st.rerun()
+except Exception:
+    pass
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📦 Mi Caja de Archivo Físico")
 
@@ -417,10 +441,10 @@ with tab_revision:
                 st.rerun()
 
 with tab_search:
-    st.markdown("### 🔍 Buscador de Repartos")
-    st.markdown("Busca cualquier reparto por código (ej: `BB_138232`), sucursal, empresa o número de reparto.")
+    st.markdown("### 🔍 Buscador Inteligente (Repartos y Guías Individuales)")
+    st.markdown("Busca por **Número de Reparto** (ej: `138232`), **Sucursal** (`BB`, `NQN`), **Operador** (`1101`) o **Número de Guía Individual** (ej: `845563` o `BB.1.845563`).")
     
-    search_query = st.text_input("Ingrese término de búsqueda:", value="", placeholder="Ej. BB_138232, NQN, 138232, 1101...")
+    search_query = st.text_input("Ingrese término de búsqueda:", value="", placeholder="Ej. 138232, 845563, BB.1.845563, NQN, 1101...")
     
     if search_query.strip():
         term = search_query.strip().upper()
@@ -430,25 +454,49 @@ with tab_search:
             num = (r["nro_reparto"] or "").upper()
             emp = (r["empresa"] or "").upper()
             op = (r.get("usuario_legajo") or "").upper()
+            enc = (r.get("guias_encontradas") or "").upper()
+            fal = (r.get("guias_faltantes") or "").upper()
+            noe = (r.get("guias_no_entregadas") or "").upper()
             full_code = f"{suc}_{num}"
             
+            # Check match in any field
+            matched_guia_info = None
+            if term in enc:
+                matched_guia_info = {"status": "DIGITALIZADA", "color": "#16a34a", "icon": "✅", "desc": "Digitalizada y presente en archivo"}
+            elif term in fal:
+                matched_guia_info = {"status": "FALTANTE", "color": "#dc2626", "icon": "⚠️", "desc": "Guía Faltante (no se encontró PDF al momento del escaneo)"}
+            elif term in noe:
+                matched_guia_info = {"status": "NO_ENTREGADA", "color": "#2563eb", "icon": "🚫", "desc": "Marcada como 'NO' entregada en Hoja de Reparto"}
+                
             if (term in full_code or 
                 term in num or 
                 term in suc or 
                 term in emp or
-                term in op):
-                results.append(r)
+                term in op or
+                matched_guia_info is not None):
+                results.append((r, matched_guia_info))
                 
         if not results:
-            st.warning("No se encontraron repartos que coincidan con la búsqueda.")
+            st.warning("No se encontraron repartos ni guías que coincidan con la búsqueda.")
         else:
             st.markdown(f"**Resultados encontrados: {len(results)}**")
-            for r in results:
+            for r, matched_guia_info in results:
                 estado_badge = "badge-organized" if r["estado"] == "ORGANIZADO" else "badge-revision"
                 estado_text = "ORGANIZADO" if r["estado"] == "ORGANIZADO" else "EN REVISIÓN"
                 
                 with st.container(border=True):
-                    col_det, col_btn = st.columns([4, 1])
+                    # If this was a match for an individual guía, display direct guia banner
+                    if matched_guia_info:
+                        st.markdown(
+                            f"<div style='background-color: {matched_guia_info['color']}15; border-left: 4px solid {matched_guia_info['color']}; padding: 8px 12px; border-radius: 4px; margin-bottom: 10px;'>"
+                            f"<strong>{matched_guia_info['icon']} Coincidencia de Guía Individual:</strong> <code>{term}</code> &nbsp;|&nbsp; "
+                            f"<strong>Estado:</strong> {matched_guia_info['desc']} &nbsp;|&nbsp; "
+                            f"📦 <strong>Caja Física:</strong> <code>{r.get('caja_codigo') or 'S/C'}</code>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                        
+                    col_det, col_btn = st.columns([3, 1])
                     with col_det:
                         dup_badge = "<span style='background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; margin-left: 6px;'>DUPLICADO</span>" if r.get("es_duplicado") else ""
                         st.markdown(
@@ -463,34 +511,15 @@ with tab_search:
                         )
                         if r.get("guias_faltantes"):
                             st.markdown(f"⚠️ **Guías Faltantes:** `{r['guias_faltantes'].replace(',', ', ')}`")
-                            resolucion_str = r.get("resolucion_guias_faltantes")
-                            if resolucion_str:
-                                import json
-                                try:
-                                    resolucion_dict = json.loads(resolucion_str)
-                                    for g, data in resolucion_dict.items():
-                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
-                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
-                                except Exception:
-                                    pass
                         if r.get("guias_sin_firma"):
                             st.markdown(f"✍️ **Guías Sin Firma:** `{r['guias_sin_firma'].replace(',', ', ')}`")
-                            res_firma_str = r.get("resolucion_guias_sin_firma")
-                            if res_firma_str:
-                                import json
-                                try:
-                                    res_firma_dict = json.loads(res_firma_str)
-                                    for g, data in res_firma_dict.items():
-                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
-                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
-                                except Exception:
-                                    pass
                         if r.get("guias_no_entregadas"):
-                            st.markdown(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** `{r['guias_no_entregadas'].replace(',', ', ')}`")
-                        st.markdown(f"**Ruta:** `{r['ruta_nueva']}`")
+                            st.markdown(f"🚫 **Guías No Entregadas:** `{r['guias_no_entregadas'].replace(',', ', ')}`")
+                        st.markdown(f"**Ruta:** `{r['ruta_nueva'] or r['ruta_original']}`")
+                        
                     with col_btn:
                         st.write("")
-                        if st.button("📂 Abrir Carpeta", key=f"open_btn_{r['id']}", use_container_width=True):
+                        if st.button("📂 Explorador Local", key=f"open_btn_{r['id']}", use_container_width=True):
                             try:
                                 res_open = requests.post(f"{API_URL}/api/repartos/{r['id']}/open")
                                 if res_open.status_code == 200:
@@ -499,6 +528,31 @@ with tab_search:
                                     st.error(res_open.json().get("detail", "Error al abrir."))
                             except Exception as ex:
                                 st.error(f"Error de conexión: {ex}")
+                                
+                    # Fetch and display web PDF files directly
+                    with st.expander("📄 Ver / Descargar Documentos PDF de este Reparto"):
+                        try:
+                            r_files = requests.get(f"{API_URL}/api/repartos/{r['id']}/files")
+                            if r_files.status_code == 200:
+                                pdf_list = r_files.json()
+                                if not pdf_list:
+                                    st.info("No se encontraron archivos PDF en la carpeta de este reparto.")
+                                else:
+                                    for pdf_f in pdf_list:
+                                        file_url = f"{API_URL}/api/repartos/{r['id']}/files/{pdf_f['name']}"
+                                        c_f1, c_f2 = st.columns([3, 1])
+                                        with c_f1:
+                                            icon_p = "📋" if pdf_f.get("is_hoja") else "📄"
+                                            st.markdown(f"{icon_p} **{pdf_f['name']}** <span style='color: #888; font-size: 0.8rem;'>({pdf_f['size_kb']} KB)</span>", unsafe_allow_html=True)
+                                        with c_f2:
+                                            st.markdown(
+                                                f"<a href='{file_url}' target='_blank' style='display: inline-block; width: 100%; text-align: center; background-color: #2563eb; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold;'>👁️ Ver PDF</a>",
+                                                unsafe_allow_html=True
+                                            )
+                            else:
+                                st.error("No se pudo cargar la lista de archivos.")
+                        except Exception as e_f:
+                            st.error(f"Error al listar PDFs: {e_f}")
 
 with tab_organizados:
     st.markdown("### 🗂️ Historial de Archivos Organizados")
@@ -589,30 +643,8 @@ with tab_organizados:
                         st.markdown(f"**Ruta Destino Completa:** `{reparto_sel['ruta_nueva']}`")
                         if reparto_sel.get("guias_faltantes"):
                             st.markdown(f"⚠️ **Guías Faltantes:** `{reparto_sel['guias_faltantes'].replace(',', ', ')}`")
-                            resolucion_str = reparto_sel.get("resolucion_guias_faltantes")
-                            if resolucion_str:
-                                import json
-                                try:
-                                    resolucion_dict = json.loads(resolucion_str)
-                                    st.markdown("**🔍 Resolución de Guías Faltantes:**")
-                                    for g, data in resolucion_dict.items():
-                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
-                                        st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
-                                except Exception:
-                                    pass
                         if reparto_sel.get("guias_sin_firma"):
                             st.markdown(f"✍️ **Guías Sin Firma:** `{reparto_sel['guias_sin_firma'].replace(',', ', ')}`")
-                            res_firma_str = reparto_sel.get("resolucion_guias_sin_firma")
-                            if res_firma_str:
-                                import json
-                                try:
-                                    res_firma_dict = json.loads(res_firma_str)
-                                    st.markdown("**🔍 Resolución de Guías Sin Firma:**")
-                                    for g, data in res_firma_dict.items():
-                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
-                                        st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
-                                except Exception:
-                                    pass
                         if reparto_sel.get("guias_no_entregadas"):
                             st.markdown(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** `{reparto_sel['guias_no_entregadas'].replace(',', ', ')}`")
                     with col_action:
@@ -626,6 +658,29 @@ with tab_organizados:
                                     st.error(res_open.json().get("detail", "Error al abrir la carpeta."))
                             except Exception as ex:
                                 st.error(f"Error de conexión: {ex}")
+
+                    # List and view PDF files directly in web
+                    st.markdown("##### 📄 Documentos Digitalizados (Acceso Web)")
+                    try:
+                        r_files = requests.get(f"{API_URL}/api/repartos/{reparto_sel['id']}/files")
+                        if r_files.status_code == 200:
+                            pdf_list = r_files.json()
+                            if not pdf_list:
+                                st.info("No se encontraron archivos PDF.")
+                            else:
+                                for pdf_f in pdf_list:
+                                    file_url = f"{API_URL}/api/repartos/{reparto_sel['id']}/files/{pdf_f['name']}"
+                                    c_f1, c_f2 = st.columns([3, 1])
+                                    with c_f1:
+                                        icon_p = "📋" if pdf_f.get("is_hoja") else "📄"
+                                        st.markdown(f"{icon_p} **{pdf_f['name']}** <span style='color: #888; font-size: 0.8rem;'>({pdf_f['size_kb']} KB)</span>", unsafe_allow_html=True)
+                                    with c_f2:
+                                        st.markdown(
+                                            f"<a href='{file_url}' target='_blank' style='display: inline-block; width: 100%; text-align: center; background-color: #2563eb; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold;'>👁️ Ver PDF</a>",
+                                            unsafe_allow_html=True
+                                        )
+                    except Exception as e_f:
+                        st.error(f"Error al listar PDFs: {e_f}")
 
 # ----------------- ADMIN OPERATOR MANAGEMENT TAB -----------------
 if is_admin:

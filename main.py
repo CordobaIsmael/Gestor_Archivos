@@ -8,6 +8,7 @@ import hashlib
 from services.db import get_db, init_db
 from models.database import Reparto, Usuario, Caja
 from core.organizer import process_incoming_folders, resolve_revision_folder
+from services.watcher import watcher_instance
 
 app = FastAPI(
     title="GestorArchivo API",
@@ -15,10 +16,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Startup event to initialize tables
+# Startup event to initialize tables and start background watcher
 @app.on_event("startup")
 def on_startup():
     init_db()
+    watcher_instance.start()
+
+@app.on_event("shutdown")
+def on_shutdown():
+    watcher_instance.stop()
 
 # ----------------- AUTH SCHEMAS & ENDPOINTS -----------------
 class LoginRequest(BaseModel):
@@ -270,6 +276,61 @@ def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"No se pudo abrir la carpeta: {str(e)}")
+
+@app.get("/api/repartos/{reparto_id}/files", summary="List PDF files in reparto folder")
+def list_reparto_files(reparto_id: int, db: Session = Depends(get_db)):
+    from pathlib import Path
+    reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
+    if not reparto:
+        raise HTTPException(status_code=404, detail="Reparto no encontrado.")
+    folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
+    if not folder_str:
+        return []
+    p = Path(folder_str)
+    if not p.exists() or not p.is_dir():
+        return []
+    
+    files = []
+    for f in p.glob("*.pdf"):
+        files.append({
+            "name": f.name,
+            "size_kb": round(f.stat().st_size / 1024, 1),
+            "is_hoja": "HOJA" in f.name.upper() or f.name.upper().startswith(f"{reparto.sucursal or ''}_{reparto.nro_reparto or ''}".upper())
+        })
+    files.sort(key=lambda x: (not x["is_hoja"], x["name"]))
+    return files
+
+@app.get("/api/repartos/{reparto_id}/files/{filename}", summary="Download / View PDF file directly")
+def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_db)):
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
+    if not reparto:
+        raise HTTPException(status_code=404, detail="Reparto no encontrado.")
+    folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
+    if not folder_str:
+        raise HTTPException(status_code=404, detail="Ruta no disponible.")
+    file_path = Path(folder_str) / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Archivo {filename} no encontrado.")
+    
+    return FileResponse(
+        path=str(file_path.resolve()), 
+        media_type="application/pdf", 
+        filename=filename,
+        headers={"Content-Disposition": f"inline; filename=\"{filename}\""}
+    )
+
+# ----------------- WATCHER ENDPOINTS -----------------
+@app.get("/api/watcher/status", summary="Get real-time auto-scan watcher status")
+def get_watcher_status():
+    return watcher_instance.get_status()
+
+@app.post("/api/watcher/toggle", summary="Enable or disable auto-scan watcher")
+def toggle_watcher():
+    new_state = not watcher_instance.enabled
+    watcher_instance.set_enabled(new_state)
+    return {"status": "success", "enabled": new_state}
 
 # ----------------- BOXES (CAJAS) SCHEMAS & ENDPOINTS -----------------
 class NewCajaRequest(BaseModel):
