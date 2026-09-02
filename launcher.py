@@ -46,17 +46,26 @@ def launch():
         print("[ERROR] Error al iniciar el Backend (FastAPI).")
         sys.exit(1)
 
-    # 2. Start Streamlit Frontend
+    # 2. Start Streamlit Frontend (headless so it binds to 0.0.0.0 for LAN access without opening invalid 0.0.0.0 in browser)
     frontend_cmd = [
         sys.executable, "-m", "streamlit", "run", "app/app.py",
         "--server.address", "0.0.0.0",
-        "--server.port", "8501"
+        "--server.port", "8501",
+        "--server.headless", "true"
     ]
     print("-> Iniciando Frontend (Streamlit) en http://0.0.0.0:8501...")
     frontend_proc = subprocess.Popen(
         frontend_cmd,
         cwd=str(base_dir)
     )
+
+    # Automatically open the correct localhost URL in the user's browser
+    import webbrowser
+    time.sleep(2)
+    try:
+        webbrowser.open("http://localhost:8501")
+    except Exception:
+        pass
 
     print("\n==================================================")
     print("[OK] ¡Aplicación corriendo con éxito!")
