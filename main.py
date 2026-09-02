@@ -8,7 +8,6 @@ import hashlib
 from services.db import get_db, init_db
 from models.database import Reparto, Usuario, Caja
 from core.organizer import process_incoming_folders, resolve_revision_folder
-from services.watcher import watcher_instance
 
 app = FastAPI(
     title="GestorArchivo API",
@@ -16,15 +15,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Startup event to initialize tables and start background watcher
+# Startup event to initialize tables
 @app.on_event("startup")
 def on_startup():
     init_db()
-    watcher_instance.start()
-
-@app.on_event("shutdown")
-def on_shutdown():
-    watcher_instance.stop()
 
 # ----------------- AUTH SCHEMAS & ENDPOINTS -----------------
 class LoginRequest(BaseModel):
@@ -320,17 +314,6 @@ def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_d
         filename=filename,
         headers={"Content-Disposition": f"inline; filename=\"{filename}\""}
     )
-
-# ----------------- WATCHER ENDPOINTS -----------------
-@app.get("/api/watcher/status", summary="Get real-time auto-scan watcher status")
-def get_watcher_status():
-    return watcher_instance.get_status()
-
-@app.post("/api/watcher/toggle", summary="Enable or disable auto-scan watcher")
-def toggle_watcher():
-    new_state = not watcher_instance.enabled
-    watcher_instance.set_enabled(new_state)
-    return {"status": "success", "enabled": new_state}
 
 # ----------------- BOXES (CAJAS) SCHEMAS & ENDPOINTS -----------------
 class NewCajaRequest(BaseModel):

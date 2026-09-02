@@ -289,30 +289,6 @@ if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_widt
             except Exception as e:
                 st.sidebar.error(f"No se pudo conectar al servidor backend: {e}")
 
-# Real-Time Watcher status in sidebar
-try:
-    r_watch = requests.get(f"{API_URL}/api/watcher/status")
-    if r_watch.status_code == 200:
-        w_data = r_watch.json()
-        w_enabled = w_data.get("enabled", False)
-        w_processing = w_data.get("is_processing", False)
-        
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📡 Auto-Escaneo en Vivo")
-        if w_processing:
-            st.sidebar.info("🔄 **Procesando escaneos en segundo plano...**")
-        elif w_enabled:
-            st.sidebar.success("🟢 **Vigilancia Activa** (Auto-procesa al escanear)")
-        else:
-            st.sidebar.warning("⏸️ **Vigilancia Pausada**")
-            
-        btn_w_txt = "⏸️ Pausar Auto-Escaneo" if w_enabled else "▶️ Reanudar Auto-Escaneo"
-        if st.sidebar.button(btn_w_txt, use_container_width=True, key="btn_toggle_watcher"):
-            requests.post(f"{API_URL}/api/watcher/toggle")
-            st.rerun()
-except Exception:
-    pass
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📦 Mi Caja de Archivo Físico")
 
@@ -561,10 +537,9 @@ with tab_organizados:
     if not organizados:
         st.info("Aún no se han organizado carpetas. Agrega carpetas en `Entrada` y haz clic en **Procesar Entrada**.")
     else:
-        # Build pandas DataFrame for display
+        # Build pandas DataFrame for display and export
         df_data = []
         for r in organizados:
-            # Shorten paths for better visualization
             ruta_ori = Path(r["ruta_original"]).name
             ruta_nue = r["ruta_nueva"].replace(str(settings.BASE_DIR), "")
             
@@ -580,11 +555,30 @@ with tab_organizados:
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
                 "Sin Firma": (r.get("guias_sin_firma") or "").replace(",", ", ") if r.get("guias_sin_firma") else "Ninguna",
                 "No Entregadas": (r.get("guias_no_entregadas") or "").replace(",", ", ") if r.get("guias_no_entregadas") else "Ninguna",
+                "Fecha Procesamiento": r.get("fecha_procesamiento") or "",
                 "Carpeta Original": ruta_ori,
                 "Ruta Destino": ruta_nue
             })
             
         df = pd.DataFrame(df_data)
+
+        # Excel Export Section
+        col_exp1, col_exp2 = st.columns([3, 1])
+        with col_exp1:
+            st.markdown(f"**Total de repartos organizados:** `{len(df)}`")
+        with col_exp2:
+            import io
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name="Repartos")
+            
+            st.download_button(
+                label="📥 Exportar a Excel (.xlsx)",
+                data=excel_buffer.getvalue(),
+                file_name=f"Reporte_Repartos_{date.today().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         
         selection_event = st.dataframe(
             df, 
@@ -604,6 +598,7 @@ with tab_organizados:
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
                 "Sin Firma": st.column_config.TextColumn(width="medium"),
                 "No Entregadas": st.column_config.TextColumn(width="medium"),
+                "Fecha Procesamiento": st.column_config.TextColumn(width="medium"),
                 "Carpeta Original": st.column_config.TextColumn(width="medium"),
                 "Ruta Destino": st.column_config.TextColumn(width="large"),
             }
