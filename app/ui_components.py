@@ -175,7 +175,7 @@ def render_stats(organized_count: int, revision_count: int):
         unsafe_allow_html=True
     )
 
-def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, salida_path=None, modo_historico=False):
+def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, salida_path=None, modo_historico=False, current_user=None):
     """Renders an interactive manual editor and PDF viewer inside a collapsible container for Revision items."""
     folder_path = Path(reparto['ruta_nueva'])
     folder_name = folder_path.name
@@ -341,7 +341,9 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "salida_path": salida_path.strip() if salida_path else None,
                         "resolucion_guias_faltantes": resolucion_inputs if resolucion_inputs else None,
                         "resolucion_guias_sin_firma": resolucion_firma_inputs if resolucion_firma_inputs else None,
-                        "modo_historico": modo_historico
+                        "modo_historico": modo_historico,
+                        "usuario_id": current_user.get("id") if current_user else None,
+                        "usuario_legajo": current_user.get("legajo") if current_user else None
                     }
                     
                     try:

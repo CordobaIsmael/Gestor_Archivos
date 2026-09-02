@@ -56,6 +56,41 @@ render_header()
 
 API_URL = settings.API_URL
 
+# ----------------- LOGIN SCREEN -----------------
+if "user" not in st.session_state or st.session_state["user"] is None:
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col_center, _ = st.columns([1, 2, 1])
+    with col_center:
+        with st.container(border=True):
+            st.markdown("### 🔐 Acceso al Sistema")
+            st.markdown("Ingrese su **Número de Usuario / Legajo** y **Contraseña / DNI** para operar su puesto de digitalización.")
+            
+            with st.form("login_form", clear_on_submit=False):
+                legajo_input = st.text_input("👤 Número de Usuario / Legajo:", placeholder="Ej. 1101")
+                password_input = st.text_input("🔑 Contraseña (DNI):", type="password", placeholder="••••••••")
+                btn_login = st.form_submit_button("🚀 Iniciar Sesión", use_container_width=True)
+                
+                if btn_login:
+                    if not legajo_input.strip() or not password_input.strip():
+                        st.error("Por favor completa todos los campos.")
+                    else:
+                        try:
+                            res_login = requests.post(
+                                f"{API_URL}/api/auth/login",
+                                json={"legajo": legajo_input.strip(), "password": password_input.strip()}
+                            )
+                            if res_login.status_code == 200:
+                                st.session_state["user"] = res_login.json()["user"]
+                                st.rerun()
+                            else:
+                                st.error(res_login.json().get("detail", "Credenciales incorrectas."))
+                        except Exception as ex:
+                            st.error(f"Error al conectar con el servidor: {ex}")
+    st.stop()
+
+# ----------------- LOGGED IN USER CONTEXT -----------------
+current_user = st.session_state["user"]
+
 def force_rerun():
     """Forces streamlit to refresh the dashboard."""
     st.rerun()
@@ -70,7 +105,10 @@ def close_caja_dialog(codigo_caja: str):
     with col1:
         if st.button("Sí, cerrar y archivar", use_container_width=True):
             try:
-                res_close = requests.post(f"{API_URL}/api/cajas/active/close")
+                res_close = requests.post(
+                    f"{API_URL}/api/cajas/active/close",
+                    json={"usuario_id": current_user["id"]}
+                )
                 if res_close.status_code == 200:
                     st.toast(f"Caja {codigo_caja} archivada y etiqueta abierta en Word.")
                     st.rerun()
@@ -92,14 +130,44 @@ try:
     else:
         st.error("Error al cargar datos desde el backend.")
         
-    res_caja = requests.get(f"{API_URL}/api/cajas/active")
+    res_caja = requests.get(f"{API_URL}/api/cajas/active?usuario_id={current_user['id']}")
     if res_caja.status_code == 200:
         active_caja = res_caja.json()
 except Exception as e:
     st.warning("El servidor backend no está respondiendo. Por favor, asegúrate de que el backend esté iniciado.")
     st.info("Puedes iniciar el servidor backend ejecutando el archivo `launcher.py` en tu terminal.")
 
-# Sidebar controls
+# Sidebar user card & controls
+st.sidebar.markdown(f"### 👤 Operador: `{current_user['legajo']}`")
+st.sidebar.markdown(f"**Nombre:** {current_user['nombre']} &nbsp;|&nbsp; **Rol:** `{current_user['rol']}`")
+
+col_logout, col_pwd = st.sidebar.columns([1, 1])
+with col_logout:
+    if st.button("🚪 Salir", use_container_width=True):
+        st.session_state["user"] = None
+        st.rerun()
+with col_pwd:
+    with st.popover("🔑 Clave"):
+        st.markdown("##### Cambiar mi contraseña")
+        p_act = st.text_input("Clave Actual:", type="password", key="p_act_input")
+        p_new = st.text_input("Nueva Clave / DNI:", type="password", key="p_new_input")
+        if st.button("Guardar Nueva Clave", key="btn_save_my_pwd", use_container_width=True):
+            if not p_act.strip() or not p_new.strip():
+                st.error("Completa ambos campos.")
+            else:
+                try:
+                    r_chg = requests.post(
+                        f"{API_URL}/api/auth/users/{current_user['id']}/change-password",
+                        json={"password_actual": p_act.strip(), "password_nueva": p_new.strip()}
+                    )
+                    if r_chg.status_code == 200:
+                        st.toast("Contraseña actualizada con éxito.")
+                    else:
+                        st.error(r_chg.json().get("detail", "Error al cambiar contraseña."))
+                except Exception as ex:
+                    st.error(f"Error: {ex}")
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Panel de Operaciones")
 st.sidebar.info(
     "Este sistema escanea la carpeta especificada para digitalizar y organizar automáticamente "
@@ -177,41 +245,40 @@ st.sidebar.markdown(f"**Revisión:** `{settings.REVISION}`")
 st.sidebar.markdown("---")
 
 # Select processing mode
-procesamiento_options = [
-    "Operación Estándar (Control Completo)",
-    "Histórico Anterior (Virtual)"
-]
-modo_proc = st.sidebar.selectbox(
-    "Modo de Procesamiento",
-    options=procesamiento_options,
-    index=0,  # Default to Operación Estándar
-    help="Operación Estándar revisa guías faltantes y firmas de entrega hacia la caja activa. Histórico Anterior guarda directamente en la caja virtual."
+modo_seleccionado = st.sidebar.radio(
+    "Modo de Digitalización:",
+    options=[
+        "Operación Estándar (Control Completo)",
+        "Histórico Anterior (Virtual)"
+    ],
+    index=0,
+    help=(
+        "**Operación Estándar:** Requiere tener una caja física activa, valida metadatos oficiales y exige control de guías faltantes y firmas.\n\n"
+        "**Histórico Anterior:** No requiere caja física (asigna a CAJA-HISTORICA-DIGITAL) y digitaliza sin frenar por faltantes o firmas."
+    )
 )
 
-modo_historico = modo_proc == "Histórico Anterior (Virtual)"
+modo_historico = (modo_seleccionado == "Histórico Anterior (Virtual)")
 
-# Process button in sidebar
-if active_caja is None and not modo_historico:
-    st.sidebar.warning("⚠️ Debes abrir una caja activa para poder procesar la entrada.")
-
-if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled=(active_caja is None and not modo_historico)):
-    if not scan_path.strip():
-        st.sidebar.error("Por favor ingresa una ruta válida.")
+# Action button to trigger processing
+if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_width=True):
+    if not scan_path:
+        st.sidebar.error("Por favor especifique la ruta de la carpeta a escanear.")
     else:
-        with st.spinner("Escaneando y organizando documentos..."):
+        with st.spinner("Procesando archivos PDF en la carpeta de entrada..."):
             try:
                 payload = {
                     "path": scan_path.strip(),
                     "salida_path": salida_path.strip() if salida_path else None,
-                    "modo_historico": modo_historico
+                    "modo_historico": modo_historico,
+                    "usuario_id": current_user["id"],
+                    "usuario_legajo": current_user["legajo"]
                 }
                 res = requests.post(f"{API_URL}/api/process", json=payload)
                 if res.status_code == 200:
                     data = res.json().get("data", {})
                     organizados = data.get("organizados", [])
                     revision = data.get("revision", [])
-                    
-                    st.sidebar.success("Escaneo completado.")
                     
                     if organizados or revision:
                         st.toast(f"Procesados: {len(organizados)} organizados, {len(revision)} a revisión.")
@@ -223,17 +290,20 @@ if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled
                 st.sidebar.error(f"No se pudo conectar al servidor backend: {e}")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📦 Cajas de Archivo Físico")
+st.sidebar.markdown("### 📦 Mi Caja de Archivo Físico")
 
 if active_caja:
-    st.sidebar.success(f"**Caja Activa:** `{active_caja['codigo']}`")
-    if st.sidebar.button("🔒 Cerrar Caja Activa", use_container_width=True):
+    st.sidebar.success(f"**Caja Activa Asignada:** `{active_caja['codigo']}`")
+    if st.sidebar.button("🔒 Cerrar Mi Caja Activa", use_container_width=True):
         close_caja_dialog(active_caja['codigo'])
 else:
-    st.sidebar.info("No hay una caja activa abierta. Los repartos procesados no tendrán caja asignada.")
-    if st.sidebar.button("➕ Abrir Nueva Caja", use_container_width=True):
+    st.sidebar.info("No tienes una caja activa abierta. Abre una caja para comenzar a digitalizar.")
+    if st.sidebar.button("➕ Abrir Mi Siguiente Caja", use_container_width=True):
         try:
-            res_new = requests.post(f"{API_URL}/api/cajas/new", json={})
+            res_new = requests.post(
+                f"{API_URL}/api/cajas/new", 
+                json={"usuario_id": current_user["id"], "usuario_legajo": current_user["legajo"]}
+            )
             if res_new.status_code == 200:
                 caja_data = res_new.json().get("data", {})
                 codigo_caja = caja_data.get("codigo", "N/A")
@@ -252,11 +322,21 @@ en_revision = [r for r in all_repartos if r["estado"] == "EN_REVISION"]
 render_stats(len(organizados), len(en_revision))
 
 # Tabs layout
-tab_revision, tab_search, tab_organizados = st.tabs([
-    f"⚠️ En Revisión ({len(en_revision)})", 
-    "🔍 Buscar Reparto",
-    f"✓ Organizados ({len(organizados)})"
-])
+is_admin = (current_user.get("rol") == "ADMIN")
+
+if is_admin:
+    tab_revision, tab_search, tab_organizados, tab_operadores = st.tabs([
+        f"⚠️ En Revisión ({len(en_revision)})", 
+        "🔍 Buscar Reparto",
+        f"✓ Organizados ({len(organizados)})",
+        "👥 Gestión de Operadores"
+    ])
+else:
+    tab_revision, tab_search, tab_organizados = st.tabs([
+        f"⚠️ En Revisión ({len(en_revision)})", 
+        "🔍 Buscar Reparto",
+        f"✓ Organizados ({len(organizados)})"
+    ])
 
 with tab_revision:
     st.markdown("### 🛠️ Carpetas Pendientes de Identificación")
@@ -314,7 +394,8 @@ with tab_revision:
                 force_rerun, 
                 active_caja=active_caja, 
                 salida_path=salida_path,
-                modo_historico=modo_historico
+                modo_historico=modo_historico,
+                current_user=current_user
             )
             
         st.markdown("---")
@@ -339,7 +420,7 @@ with tab_search:
     st.markdown("### 🔍 Buscador de Repartos")
     st.markdown("Busca cualquier reparto por código (ej: `BB_138232`), sucursal, empresa o número de reparto.")
     
-    search_query = st.text_input("Ingrese término de búsqueda:", value="", placeholder="Ej. BB_138232, NQN, 138232...")
+    search_query = st.text_input("Ingrese término de búsqueda:", value="", placeholder="Ej. BB_138232, NQN, 138232, 1101...")
     
     if search_query.strip():
         term = search_query.strip().upper()
@@ -348,12 +429,14 @@ with tab_search:
             suc = (r["sucursal"] or "").upper()
             num = (r["nro_reparto"] or "").upper()
             emp = (r["empresa"] or "").upper()
+            op = (r.get("usuario_legajo") or "").upper()
             full_code = f"{suc}_{num}"
             
             if (term in full_code or 
                 term in num or 
                 term in suc or 
-                term in emp):
+                term in emp or
+                term in op):
                 results.append(r)
                 
         if not results:
@@ -374,7 +457,8 @@ with tab_search:
                         )
                         st.markdown(
                             f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])} | "
-                            f"📦 **Caja:** `{r.get('caja_codigo') or 'S/C'}`"
+                            f"📦 **Caja:** `{r.get('caja_codigo') or 'S/C'}` | "
+                            f"👤 **Operador:** `{r.get('usuario_legajo') or 'S/A'}`"
                         )
                         if r.get("guias_faltantes"):
                             st.markdown(f"⚠️ **Guías Faltantes:** `{r['guias_faltantes'].replace(',', ', ')}`")
@@ -436,6 +520,7 @@ with tab_organizados:
                 "Sucursal": r["sucursal"],
                 "Nro Reparto": r["nro_reparto"],
                 "Caja": r.get("caja_codigo") or "S/C",
+                "Operador": r.get("usuario_legajo") or "S/A",
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
                 "Sin Firma": (r.get("guias_sin_firma") or "").replace(",", ", ") if r.get("guias_sin_firma") else "Ninguna",
                 "No Entregadas": (r.get("guias_no_entregadas") or "").replace(",", ", ") if r.get("guias_no_entregadas") else "Ninguna",
@@ -458,6 +543,7 @@ with tab_organizados:
                 "Sucursal": st.column_config.TextColumn(width="small"),
                 "Nro Reparto": st.column_config.TextColumn(width="medium"),
                 "Caja": st.column_config.TextColumn(width="small"),
+                "Operador": st.column_config.TextColumn(width="small"),
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
                 "Sin Firma": st.column_config.TextColumn(width="medium"),
                 "No Entregadas": st.column_config.TextColumn(width="medium"),
@@ -492,7 +578,8 @@ with tab_organizados:
                         st.markdown(
                             f"📁 **Reparto Seleccionado:** `{reparto_sel['sucursal'] or '?'}_{reparto_sel['nro_reparto'] or '?'}` &nbsp;&nbsp;|&nbsp;&nbsp; "
                             f"**Empresa:** {reparto_sel['empresa']} &nbsp;&nbsp;|&nbsp;&nbsp; "
-                            f"**Caja:** {reparto_sel.get('caja_codigo') or 'S/C'}"
+                            f"**Caja:** {reparto_sel.get('caja_codigo') or 'S/C'} &nbsp;&nbsp;|&nbsp;&nbsp; "
+                            f"👤 **Operador:** `{reparto_sel.get('usuario_legajo') or 'S/A'}`"
                         )
                         st.markdown(f"**Ruta Destino Completa:** `{reparto_sel['ruta_nueva']}`")
                         if reparto_sel.get("guias_faltantes"):
@@ -534,3 +621,91 @@ with tab_organizados:
                                     st.error(res_open.json().get("detail", "Error al abrir la carpeta."))
                             except Exception as ex:
                                 st.error(f"Error de conexión: {ex}")
+
+# ----------------- ADMIN OPERATOR MANAGEMENT TAB -----------------
+if is_admin:
+    with tab_operadores:
+        st.markdown("### 👥 Administración de Operadores de Escáner")
+        st.markdown("Administra los usuarios autorizados para operar los puestos de digitalización y monitorea su productividad.")
+        
+        col_new_user, col_list_users = st.columns([1, 2])
+        
+        # New Operator Form
+        with col_new_user:
+            with st.container(border=True):
+                st.markdown("##### ➕ Alta de Nuevo Operador")
+                with st.form("new_operator_form", clear_on_submit=True):
+                    new_legajo = st.text_input("Número de Usuario / Legajo:", placeholder="Ej. 1102")
+                    new_nombre = st.text_input("Nombre y Apellido:", placeholder="Ej. Lucas")
+                    new_pwd = st.text_input("DNI / Contraseña Inicial:", type="password", placeholder="Ej. 41234567")
+                    new_rol = st.selectbox("Rol del Usuario:", options=["OPERADOR", "ADMIN"], index=0)
+                    
+                    submit_user = st.form_submit_button("Crear Operador", use_container_width=True)
+                    if submit_user:
+                        if not new_legajo.strip() or not new_nombre.strip() or not new_pwd.strip():
+                            st.error("Por favor completa todos los campos del nuevo operador.")
+                        else:
+                            try:
+                                r_create = requests.post(
+                                    f"{API_URL}/api/auth/users/create",
+                                    json={
+                                        "legajo": new_legajo.strip(),
+                                        "nombre": new_nombre.strip(),
+                                        "password": new_pwd.strip(),
+                                        "rol": new_rol
+                                    }
+                                )
+                                if r_create.status_code == 200:
+                                    st.success(f"¡Operador {new_legajo} ({new_nombre}) creado con éxito!")
+                                    st.rerun()
+                                else:
+                                    st.error(r_create.json().get("detail", "Error al crear operador."))
+                            except Exception as ex:
+                                st.error(f"Error de conexión: {ex}")
+                                
+        # Operator List & Productivity
+        with col_list_users:
+            st.markdown("##### 📋 Operadores Registrados")
+            try:
+                r_users = requests.get(f"{API_URL}/api/auth/users")
+                if r_users.status_code == 200:
+                    users_data = r_users.json()
+                    
+                    for u in users_data:
+                        with st.container(border=True):
+                            c_u1, c_u2, c_u3 = st.columns([2, 2, 2])
+                            with c_u1:
+                                estado_icon = "🟢 Activo" if u["activo"] else "🔴 Inactivo"
+                                st.markdown(f"**Legajo `{u['legajo']}`** ({u['nombre']})")
+                                st.markdown(f"Rol: `{u['rol']}` &nbsp;|&nbsp; {estado_icon}")
+                            with c_u2:
+                                st.markdown(f"📁 Repartos: **{u.get('total_repartos', 0)}**")
+                                st.markdown(f"📦 Cajas: **{u.get('total_cajas', 0)}**")
+                            with c_u3:
+                                with st.popover("⚙️ Acciones"):
+                                    st.markdown(f"**Opciones para {u['legajo']}**")
+                                    # Toggle active
+                                    toggle_label = "Desactivar Usuario" if u["activo"] else "Activar Usuario"
+                                    if st.button(toggle_label, key=f"tgl_{u['id']}", use_container_width=True):
+                                        requests.post(f"{API_URL}/api/auth/users/{u['id']}/toggle")
+                                        st.rerun()
+                                    
+                                    # Reset password / DNI
+                                    st.markdown("---")
+                                    st.markdown("##### Restablecer Clave (DNI)")
+                                    reset_pwd_input = st.text_input("Nueva Clave / DNI:", type="password", key=f"rst_p_{u['id']}")
+                                    if st.button("Guardar Clave", key=f"btn_rst_{u['id']}", use_container_width=True):
+                                        if reset_pwd_input.strip():
+                                            r_rst = requests.post(
+                                                f"{API_URL}/api/auth/users/{u['id']}/reset-password",
+                                                json={"password_nueva": reset_pwd_input.strip()}
+                                            )
+                                            if r_rst.status_code == 200:
+                                                st.toast(f"Clave restablecida para {u['legajo']}.")
+                                                st.rerun()
+                                            else:
+                                                st.error("Error al restablecer.")
+                else:
+                    st.error("Error al obtener la lista de operadores.")
+            except Exception as ex:
+                st.error(f"Error al conectar con la API: {ex}")

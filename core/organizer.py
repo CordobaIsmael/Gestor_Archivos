@@ -55,7 +55,9 @@ def process_incoming_folders(
     db: Session, 
     custom_path: Path = None, 
     custom_salida: Path = None,
-    modo_historico: bool = False
+    modo_historico: bool = False,
+    usuario_id: int = None,
+    usuario_legajo: str = None
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Scans the specified folder (or settings.ENTRADA) recursively for folders containing PDFs,
@@ -83,10 +85,16 @@ def process_incoming_folders(
             db.refresh(hist_caja)
         caja_id = hist_caja.id
     else:
-        # Get active box
-        active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        # Get active box for this operator (or global active box)
+        if usuario_id:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
+            if not active_caja:
+                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        else:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+
         if not active_caja:
-            raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de procesar entrada.")
+            raise ValueError("No tienes una caja activa abierta. Debes abrir una caja antes de procesar entrada.")
         caja_id = active_caja.id
         
     # Find all folders containing PDF files directly, sorted by depth (deepest first)
@@ -215,6 +223,8 @@ def process_incoming_folders(
                     ruta_nueva=str(final_dest.resolve()),
                     estado="ORGANIZADO",
                     caja_id=caja_id,
+                    usuario_id=usuario_id,
+                    usuario_legajo=usuario_legajo,
                     guias_encontradas=guias_encontradas_str,
                     guias_faltantes=guias_faltantes_str,
                     guias_no_entregadas=guias_no_entregadas_str,
@@ -230,11 +240,11 @@ def process_incoming_folders(
             except Exception as e:
                 # If moving failed, send to revision
                 print(f"Error moving organized folder {folder.name}: {e}")
-                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str)
+                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo)
                 
         else:
             # Metadata missing, invalid sucursal, missing guias or unsigned guias -> Move to REVISION
-            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str)
+            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo)
             
     # Clean up empty directories under the scanned path
     clean_empty_directories(entrada_path)
@@ -250,7 +260,9 @@ def send_to_revision(
     guias_encontradas: str = None,
     guias_faltantes: str = None,
     guias_sin_firma: str = None,
-    guias_no_entregadas: str = None
+    guias_no_entregadas: str = None,
+    usuario_id: int = None,
+    usuario_legajo: str = None
 ):
     """Helper to move a folder to REVISION and log it in the database."""
     dest_path = Path(settings.REVISION) / folder_path.name
@@ -275,7 +287,13 @@ def send_to_revision(
             nro_reparto = metadata_found.get("nro_reparto")
             
         # Get active box if any
-        active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        if usuario_id:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
+            if not active_caja:
+                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        else:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+
         caja_id = active_caja.id if active_caja else None
 
         reparto_db = Reparto(
@@ -287,6 +305,8 @@ def send_to_revision(
             ruta_nueva=str(final_dest.resolve()),
             estado="EN_REVISION",
             caja_id=caja_id,
+            usuario_id=usuario_id,
+            usuario_legajo=usuario_legajo,
             guias_encontradas=guias_encontradas,
             guias_faltantes=guias_faltantes,
             guias_sin_firma=guias_sin_firma,
@@ -312,7 +332,9 @@ def resolve_revision_folder(
     custom_salida: Path = None,
     resolucion_guias_faltantes: dict = None,
     resolucion_guias_sin_firma: dict = None,
-    modo_historico: bool = False
+    modo_historico: bool = False,
+    usuario_id: int = None,
+    usuario_legajo: str = None
 ) -> Dict[str, Any]:
     """
     Manually resolves a folder that was in REVISION.
@@ -411,6 +433,11 @@ def resolve_revision_folder(
     reparto.guias_sin_firma = guias_sin_firma_str
     reparto.guias_no_entregadas = guias_no_entregadas_str
     
+    if usuario_id:
+        reparto.usuario_id = usuario_id
+    if usuario_legajo:
+        reparto.usuario_legajo = usuario_legajo
+    
     import json
     if resolucion_guias_faltantes:
         reparto.resolucion_guias_faltantes = json.dumps(resolucion_guias_faltantes)
@@ -432,7 +459,13 @@ def resolve_revision_folder(
             db.refresh(hist_caja)
         reparto.caja_id = hist_caja.id
     elif not reparto.caja_id:
-        active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        if usuario_id:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
+            if not active_caja:
+                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+        else:
+            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
+
         if not active_caja:
             raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de organizar el reparto.")
         reparto.caja_id = active_caja.id

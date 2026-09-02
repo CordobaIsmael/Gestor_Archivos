@@ -59,10 +59,47 @@ def init_db():
         pass
     try:
         with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE repartos ADD COLUMN resolucion_guias_sin_firma VARCHAR(4000)"))
-            print("Added resolucion_guias_sin_firma column (migration).")
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN usuario_id INTEGER"))
+            print("Added usuario_id column to repartos (migration).")
     except Exception:
         pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN usuario_legajo VARCHAR(50)"))
+            print("Added usuario_legajo column to repartos (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE cajas ADD COLUMN usuario_id INTEGER"))
+            print("Added usuario_id column to cajas (migration).")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE cajas ADD COLUMN usuario_legajo VARCHAR(50)"))
+            print("Added usuario_legajo column to cajas (migration).")
+    except Exception:
+        pass
+
+    # Bootstrap default admin user 1101 if not exists
+    from models.database import Usuario
+    import hashlib
+    with SessionLocal() as db_session:
+        admin_user = db_session.query(Usuario).filter(Usuario.legajo == "1101").first()
+        if not admin_user:
+            # Default password for 1101 is '1101'
+            pwd_hash = hashlib.sha256("1101".encode('utf-8')).hexdigest()
+            admin_user = Usuario(
+                legajo="1101",
+                nombre="Administrador",
+                password_hash=pwd_hash,
+                rol="ADMIN",
+                activo=True
+            )
+            db_session.add(admin_user)
+            db_session.commit()
+            print("Bootstrap: Initial admin user (1101) created successfully.")
         
     print("Database tables initialized successfully.")
 
