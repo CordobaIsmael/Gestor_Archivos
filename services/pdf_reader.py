@@ -226,3 +226,78 @@ class PDFReader:
             return False
         except Exception:
             return False
+
+    @classmethod
+    def check_guia_signature(cls, pdf_path: Path) -> Dict[str, Any]:
+        """
+        Analyzes a delivery note / Guía PDF to verify whether it contains a client signature / conforme.
+        Returns a dict: {"has_signature": bool, "confidence": float, "details": str}
+        """
+        result = {
+            "has_signature": False,
+            "confidence": 0.0,
+            "details": "No signature detected"
+        }
+        try:
+            from PIL import Image
+            import io
+            import numpy as np
+            
+            doc = fitz.open(pdf_path)
+            if len(doc) == 0:
+                doc.close()
+                return result
+                
+            page = doc[0]
+            w, h = page.rect.width, page.rect.height
+            
+            # Find signature-related text blocks in the lower 45% of page
+            blocks = page.get_text("blocks")
+            sig_blocks = [
+                b for b in blocks 
+                if b[1] > h * 0.55 and any(k in b[4].upper() for k in ["RECIB", "CONFORME", "FIRMA", "ACLARAC", "DOCUMENTO", "DNI", "FECHA"])
+            ]
+            
+            if sig_blocks:
+                min_x = min(b[0] for b in sig_blocks)
+                min_y = min(b[1] for b in sig_blocks)
+                max_x = max(b[2] for b in sig_blocks)
+                max_y = max(b[3] for b in sig_blocks)
+                # Define signature ROI around the found signature block
+                roi = fitz.Rect(max(0, min_x - 5), max(0, min_y - 10), min(w, min_x + 240), min(h, max_y + 35))
+            else:
+                # Fallback to bottom-left 25% of the page
+                roi = fitz.Rect(10, h * 0.70, min(w, 260), h * 0.98)
+                
+            pix = page.get_pixmap(clip=roi, dpi=150)
+            doc.close()
+            
+            img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+            pixels = list(img.get_flattened_data())
+            if not pixels:
+                return result
+                
+            total_pixels = len(pixels)
+            dark_pixels = sum(1 for p in pixels if p < 165)
+            dark_ratio = (dark_pixels / total_pixels) * 100
+            
+            arr = np.array(pixels)
+            std_dev = float(np.std(arr))
+            
+            # A blank template has a low dark ratio and low variance.
+            # A signed document has pen strokes that increase dark pixel ratio and std_dev.
+            # Typical signed guide has dark_ratio > 3.0% and std_dev > 25.0
+            if dark_ratio >= 3.0 and std_dev >= 25.0:
+                result["has_signature"] = True
+                result["confidence"] = min(1.0, (dark_ratio / 6.0))
+                result["details"] = f"Firma detectada (Densidad tinta: {dark_ratio:.1f}%, Varianza: {std_dev:.1f})"
+            else:
+                result["has_signature"] = False
+                result["confidence"] = max(0.0, 1.0 - (dark_ratio / 3.0))
+                result["details"] = f"Sin firma o recuadro en blanco (Densidad tinta: {dark_ratio:.1f}%, Varianza: {std_dev:.1f})"
+                
+            return result
+        except Exception as e:
+            print(f"Error analyzing signature on {pdf_path.name}: {e}")
+            result["details"] = f"Error: {e}"
+            return result

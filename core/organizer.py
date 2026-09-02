@@ -55,8 +55,7 @@ def process_incoming_folders(
     db: Session, 
     custom_path: Path = None, 
     custom_salida: Path = None,
-    modo_historico: bool = False,
-    modo_flexible: bool = False
+    modo_historico: bool = False
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Scans the specified folder (or settings.ENTRADA) recursively for folders containing PDFs,
@@ -117,10 +116,12 @@ def process_incoming_folders(
 
         original_path_str = str(folder.resolve())
 
-        # Check expected vs physical guias if a Hoja de Reparto was found
+        # Check expected vs physical guias and signatures if a Hoja de Reparto was found
         guias_encontradas_str = None
         guias_faltantes_str = None
+        guias_sin_firma_str = None
         has_missing_guias = False
+        has_unsigned_guias = False
         
         if hoja_pdf_path:
             expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
@@ -128,17 +129,23 @@ def process_incoming_folders(
             
             encontradas_acc = []
             faltantes_acc = []
+            sin_firma_acc = []
+            
             for g in expected_guias:
                 parts = g.split(".")
                 if len(parts) >= 3:
                     serial = parts[2]
-                    found = False
+                    matched_pdf = None
                     for other_pdf in other_pdfs:
                         if PDFReader.check_pdf_contains_serial(other_pdf, serial):
-                            found = True
+                            matched_pdf = other_pdf
                             break
-                    if found:
+                    if matched_pdf:
                         encontradas_acc.append(g)
+                        # Check signature on the matched guide PDF
+                        sig_res = PDFReader.check_guia_signature(matched_pdf)
+                        if not sig_res.get("has_signature", False):
+                            sin_firma_acc.append(g)
                     else:
                         faltantes_acc.append(g)
                 else:
@@ -146,9 +153,15 @@ def process_incoming_folders(
             
             guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
             guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
+            guias_sin_firma_str = ",".join(sin_firma_acc) if sin_firma_acc else None
+            
             has_missing_guias = len(faltantes_acc) > 0
-            if modo_flexible or modo_historico:
+            has_unsigned_guias = len(sin_firma_acc) > 0
+            
+            # In Historical Mode, we don't block organization
+            if modo_historico:
                 has_missing_guias = False
+                has_unsigned_guias = False
 
         # Check if the detected sucursal is officially valid
         is_valid_sucursal = (
@@ -157,13 +170,14 @@ def process_incoming_folders(
             metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
         )
 
-        # If a complete Hoja de Reparto was found with all metadata, valid sucursal AND no missing guias
+        # If a complete Hoja de Reparto was found with all metadata, valid sucursal, no missing guias AND no unsigned guias
         if (metadata_found and 
             metadata_found["empresa"] and 
             metadata_found["fecha"] and 
             is_valid_sucursal and 
             metadata_found["nro_reparto"] and
-            not has_missing_guias):
+            not has_missing_guias and
+            not has_unsigned_guias):
             
             empresa = metadata_found["empresa"]
             sucursal = metadata_found["sucursal"]
@@ -197,7 +211,8 @@ def process_incoming_folders(
                     estado="ORGANIZADO",
                     caja_id=caja_id,
                     guias_encontradas=guias_encontradas_str,
-                    guias_faltantes=guias_faltantes_str
+                    guias_faltantes=guias_faltantes_str,
+                    guias_sin_firma=guias_sin_firma_str
                 )
                 db.add(reparto_db)
                 db.commit()
@@ -209,11 +224,11 @@ def process_incoming_folders(
             except Exception as e:
                 # If moving failed, send to revision
                 print(f"Error moving organized folder {folder.name}: {e}")
-                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str)
+                send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str)
                 
         else:
-            # Metadata missing, invalid sucursal or missing guias -> Move to REVISION
-            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str)
+            # Metadata missing, invalid sucursal, missing guias or unsigned guias -> Move to REVISION
+            send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str)
             
     # Clean up empty directories under the scanned path
     clean_empty_directories(entrada_path)
@@ -227,7 +242,8 @@ def send_to_revision(
     metadata_found: dict, 
     original_path_str: str,
     guias_encontradas: str = None,
-    guias_faltantes: str = None
+    guias_faltantes: str = None,
+    guias_sin_firma: str = None
 ):
     """Helper to move a folder to REVISION and log it in the database."""
     dest_path = Path(settings.REVISION) / folder_path.name
@@ -265,7 +281,8 @@ def send_to_revision(
             estado="EN_REVISION",
             caja_id=caja_id,
             guias_encontradas=guias_encontradas,
-            guias_faltantes=guias_faltantes
+            guias_faltantes=guias_faltantes,
+            guias_sin_firma=guias_sin_firma
         )
         db.add(reparto_db)
         db.commit()
@@ -286,6 +303,7 @@ def resolve_revision_folder(
     db: Session,
     custom_salida: Path = None,
     resolucion_guias_faltantes: dict = None,
+    resolucion_guias_sin_firma: dict = None,
     modo_historico: bool = False
 ) -> Dict[str, Any]:
     """
@@ -319,23 +337,28 @@ def resolve_revision_folder(
             
     guias_encontradas_str = None
     guias_faltantes_str = None
+    guias_sin_firma_str = None
     if hoja_pdf_path:
         expected_guias = PDFReader.extract_expected_guias(hoja_pdf_path)
         other_pdfs = [p for p in pdf_files if p != hoja_pdf_path]
         
         encontradas_acc = []
         faltantes_acc = []
+        sin_firma_acc = []
         for g in expected_guias:
             parts = g.split(".")
             if len(parts) >= 3:
                 serial = parts[2]
-                found = False
+                matched_pdf = None
                 for other_pdf in other_pdfs:
                     if PDFReader.check_pdf_contains_serial(other_pdf, serial):
-                        found = True
+                        matched_pdf = other_pdf
                         break
-                if found:
+                if matched_pdf:
                     encontradas_acc.append(g)
+                    sig_res = PDFReader.check_guia_signature(matched_pdf)
+                    if not sig_res.get("has_signature", False):
+                        sin_firma_acc.append(g)
                 else:
                     faltantes_acc.append(g)
             else:
@@ -343,6 +366,7 @@ def resolve_revision_folder(
         
         guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
         guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
+        guias_sin_firma_str = ",".join(sin_firma_acc) if sin_firma_acc else None
 
     salida_base = custom_salida if custom_salida is not None else Path(settings.SALIDA)
     dest_path = get_organized_path(
@@ -371,12 +395,18 @@ def resolve_revision_folder(
     reparto.estado = "ORGANIZADO"
     reparto.guias_encontradas = guias_encontradas_str
     reparto.guias_faltantes = guias_faltantes_str
+    reparto.guias_sin_firma = guias_sin_firma_str
     
     import json
     if resolucion_guias_faltantes:
         reparto.resolucion_guias_faltantes = json.dumps(resolucion_guias_faltantes)
     else:
         reparto.resolucion_guias_faltantes = None
+
+    if resolucion_guias_sin_firma:
+        reparto.resolucion_guias_sin_firma = json.dumps(resolucion_guias_sin_firma)
+    else:
+        reparto.resolucion_guias_sin_firma = None
     
     # If in historical mode, assign to the virtual box. Otherwise, assign the currently active physical box.
     if modo_historico:

@@ -164,19 +164,17 @@ st.sidebar.markdown("---")
 
 # Select processing mode
 procesamiento_options = [
-    "Puesta al Día (Etapa 2 - Flexible)",
-    "Estándar (Etapa 3 - Estricto)",
+    "Operación Estándar (Control Completo)",
     "Histórico Anterior (Virtual)"
 ]
 modo_proc = st.sidebar.selectbox(
     "Modo de Procesamiento",
     options=procesamiento_options,
-    index=0,  # Default to Stage 2 (Flexible)
-    help="Determina el nivel de validación y destino. Etapa 2 desactiva el control de guías faltantes para ponerse al día. Histórico guarda en la caja virtual."
+    index=0,  # Default to Operación Estándar
+    help="Operación Estándar revisa guías faltantes y firmas de entrega hacia la caja activa. Histórico Anterior guarda directamente en la caja virtual."
 )
 
 modo_historico = modo_proc == "Histórico Anterior (Virtual)"
-modo_flexible = modo_proc == "Puesta al Día (Etapa 2 - Flexible)"
 
 # Process button in sidebar
 if active_caja is None and not modo_historico:
@@ -191,8 +189,7 @@ if st.sidebar.button("🔍 Procesar Entrada", use_container_width=True, disabled
                 payload = {
                     "path": scan_path.strip(),
                     "salida_path": salida_path.strip() if salida_path else None,
-                    "modo_historico": modo_historico,
-                    "modo_flexible": modo_flexible
+                    "modo_historico": modo_historico
                 }
                 res = requests.post(f"{API_URL}/api/process", json=payload)
                 if res.status_code == 200:
@@ -377,6 +374,18 @@ with tab_search:
                                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
                                 except Exception:
                                     pass
+                        if r.get("guias_sin_firma"):
+                            st.markdown(f"✍️ **Guías Sin Firma:** `{r['guias_sin_firma'].replace(',', ', ')}`")
+                            res_firma_str = r.get("resolucion_guias_sin_firma")
+                            if res_firma_str:
+                                import json
+                                try:
+                                    res_firma_dict = json.loads(res_firma_str)
+                                    for g, data in res_firma_dict.items():
+                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
+                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{g}`: **{data['estado']}**{obs_text}")
+                                except Exception:
+                                    pass
                         st.markdown(f"**Ruta:** `{r['ruta_nueva']}`")
                     with col_btn:
                         st.write("")
@@ -412,6 +421,7 @@ with tab_organizados:
                 "Nro Reparto": r["nro_reparto"],
                 "Caja": r.get("caja_codigo") or "S/C",
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
+                "Sin Firma": (r.get("guias_sin_firma") or "").replace(",", ", ") if r.get("guias_sin_firma") else "Ninguna",
                 "Carpeta Original": ruta_ori,
                 "Ruta Destino": ruta_nue
             })
@@ -432,6 +442,7 @@ with tab_organizados:
                 "Nro Reparto": st.column_config.TextColumn(width="medium"),
                 "Caja": st.column_config.TextColumn(width="small"),
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
+                "Sin Firma": st.column_config.TextColumn(width="medium"),
                 "Carpeta Original": st.column_config.TextColumn(width="medium"),
                 "Ruta Destino": st.column_config.TextColumn(width="large"),
             }
@@ -475,6 +486,19 @@ with tab_organizados:
                                     resolucion_dict = json.loads(resolucion_str)
                                     st.markdown("**🔍 Resolución de Guías Faltantes:**")
                                     for g, data in resolucion_dict.items():
+                                        obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
+                                        st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
+                                except Exception:
+                                    pass
+                        if reparto_sel.get("guias_sin_firma"):
+                            st.markdown(f"✍️ **Guías Sin Firma:** `{reparto_sel['guias_sin_firma'].replace(',', ', ')}`")
+                            res_firma_str = reparto_sel.get("resolucion_guias_sin_firma")
+                            if res_firma_str:
+                                import json
+                                try:
+                                    res_firma_dict = json.loads(res_firma_str)
+                                    st.markdown("**🔍 Resolución de Guías Sin Firma:**")
+                                    for g, data in res_firma_dict.items():
                                         obs_text = f" (Obs: *{data['observacion']}*)" if data.get("observacion") else ""
                                         st.markdown(f"- `{g}`: **{data['estado']}**{obs_text}")
                                 except Exception:

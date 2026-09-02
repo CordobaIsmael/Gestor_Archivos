@@ -27,13 +27,13 @@ class ResolveRequest(BaseModel):
     nro_reparto: str
     salida_path: Optional[str] = None
     resolucion_guias_faltantes: Optional[dict] = None
+    resolucion_guias_sin_firma: Optional[dict] = None
     modo_historico: Optional[bool] = False
 
 class ProcessRequest(BaseModel):
     path: Optional[str] = None
     salida_path: Optional[str] = None
     modo_historico: Optional[bool] = False
-    modo_flexible: Optional[bool] = False
 
 @app.post("/api/process", summary="Process incoming folders")
 def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends(get_db)):
@@ -58,14 +58,12 @@ def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends
                 custom_salida = Path(data.salida_path)
             
             modo_historico = data.modo_historico or False
-            modo_flexible = data.modo_flexible or False
             
         results = process_incoming_folders(
             db, 
             custom_path=custom_path, 
             custom_salida=custom_salida,
-            modo_historico=modo_historico,
-            modo_flexible=modo_flexible
+            modo_historico=modo_historico
         )
         return {
             "status": "success",
@@ -110,6 +108,7 @@ def resolve_reparto(
             db=db,
             custom_salida=custom_salida,
             resolucion_guias_faltantes=data.resolucion_guias_faltantes,
+            resolucion_guias_sin_firma=data.resolucion_guias_sin_firma,
             modo_historico=data.modo_historico or False
         )
         return {

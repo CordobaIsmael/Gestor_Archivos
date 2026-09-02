@@ -193,6 +193,8 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
             # Show missing and found guias alerts
             if reparto.get("guias_faltantes"):
                 st.error(f"⚠️ **Guías Faltantes:** {reparto['guias_faltantes'].replace(',', ', ')}")
+            if reparto.get("guias_sin_firma"):
+                st.warning(f"✍️ **Guías Sin Firma:** {reparto['guias_sin_firma'].replace(',', ', ')}")
             if reparto.get("guias_encontradas"):
                 with st.expander("✅ Guías Encontradas"):
                     st.write(reparto["guias_encontradas"].replace(",", ", "))
@@ -283,6 +285,41 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "estado": estado_guia,
                         "observacion": observacion
                     }
+
+            # Form for unsigned guias resolution status
+            resolucion_firma_inputs = {}
+            if reparto.get("guias_sin_firma"):
+                st.markdown("---")
+                st.markdown("##### ✍️ Declaración de Guías Sin Firma")
+                st.info("Indica la resolución para las guías donde no se detectó la firma del cliente:")
+                sin_firma_list = [g.strip() for g in reparto["guias_sin_firma"].split(",") if g.strip()]
+                for g in sin_firma_list:
+                    st.markdown(f"🖋️ **Guía: `{g}`**")
+                    est_key = f"est_nosig_{reparto['id']}_{g}"
+                    obs_key = f"obs_nosig_{reparto['id']}_{g}"
+                    
+                    estado_firma = st.selectbox(
+                        f"Resolución de firma para {g}:",
+                        options=[
+                            "Firma válida (Aprobación manual / Firma poco legible)",
+                            "Aceptada sin firma (Autorizado)",
+                            "Reclamar firma al chofer / depósito"
+                        ],
+                        key=est_key
+                    )
+                    
+                    observacion_f = ""
+                    if "Aceptada sin firma" in estado_firma or "Reclamar" in estado_firma:
+                        observacion_f = st.text_input(
+                            f"Observación de firma para {g}:",
+                            key=obs_key,
+                            placeholder="Ej. Cliente autorizó por WhatsApp / Reclamar a chofer..."
+                        )
+                        
+                    resolucion_firma_inputs[g] = {
+                        "estado": estado_firma,
+                        "observacion": observacion_f
+                    }
             
             # Resolve button
             st.write("")
@@ -301,6 +338,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                         "nro_reparto": nro_reparto.strip(),
                         "salida_path": salida_path.strip() if salida_path else None,
                         "resolucion_guias_faltantes": resolucion_inputs if resolucion_inputs else None,
+                        "resolucion_guias_sin_firma": resolucion_firma_inputs if resolucion_firma_inputs else None,
                         "modo_historico": modo_historico
                     }
                     
