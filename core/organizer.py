@@ -576,7 +576,8 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
     
     # 3. Match and rename guias
     renamed_paths = set()
-    prefix = f"{sucursal.upper().strip()}{nro_reparto.strip()}"
+    suc_clean = sucursal.upper().strip()
+    nro_clean = nro_reparto.strip()
     
     for g in expected_guias:
         parts = g.split(".")
@@ -586,25 +587,28 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
                 if other_pdf in renamed_paths:
                     continue
                 if PDFReader.check_pdf_contains_serial(other_pdf, serial):
-                    # We match this PDF! Rename it to prefix_guia.pdf
-                    new_name = f"{prefix}_{g}.pdf"
+                    # Rename it to Guia_{g}.pdf (e.g. Guia_BB.1.845563.pdf)
+                    safe_guia_name = g.replace("/", "_").replace("\\", "_")
+                    new_name = f"Guia_{safe_guia_name}.pdf"
                     new_path = organized_dir / new_name
                     try:
                         # Ensure we don't overwrite if it somehow already has that name
                         if other_pdf != new_path:
-                            # If new_path already exists (e.g. duplicate check), generate safe name
+                            # If new_path already exists, generate safe name
                             if new_path.exists():
                                 new_path = new_path.with_name(f"{new_path.stem}_dup.pdf")
                             other_pdf.rename(new_path)
                             renamed_paths.add(new_path)
                             print(f"Renamed guide PDF: {other_pdf.name} -> {new_path.name}")
+                        else:
+                            renamed_paths.add(other_pdf)
                     except Exception as e:
                         print(f"Error renaming guide PDF {other_pdf.name}: {e}")
                     break
                     
-    # 4. Finally, rename the Hoja de Reparto to prefix_reparto.pdf
+    # 4. Finally, rename the Hoja de Reparto to Hoja_Reparto_{sucursal}_{nro_reparto}.pdf
     try:
-        new_hoja_name = f"{prefix}_reparto.pdf"
+        new_hoja_name = f"Hoja_Reparto_{suc_clean}_{nro_clean}.pdf"
         new_hoja_path = organized_dir / new_hoja_name
         if hoja_pdf_path != new_hoja_path:
             if new_hoja_path.exists():
