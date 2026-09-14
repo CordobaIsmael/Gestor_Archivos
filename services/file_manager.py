@@ -5,9 +5,24 @@ from datetime import date
 
 SUCURSAL_NAMES = {
     "BB": "BAHIA BLANCA",
+    "NQ": "NEUQUEN",
     "NQN": "NEUQUEN",
     "CF": "CAPITAL FEDERAL",
+    "MP": "MAR DEL PLATA",
     "MDP": "MAR DEL PLATA",
+    "RO": "ROSARIO",
+    "ROS": "ROSARIO",
+    "OL": "OLAVARRIA",
+    "OLA": "OLAVARRIA",
+    "TA": "TANDIL",
+    "TAN": "TANDIL",
+    "AR": "TRES ARROYOS",
+    "AZ": "AZUL",
+    "CO": "CORDOBA",
+    "COR": "CORDOBA",
+    "CBA": "CORDOBA",
+    "RE": "VILLA REGINA",
+    "REG": "VILLA REGINA"
 }
 
 MONTH_NAMES = {
@@ -28,10 +43,10 @@ MONTH_NAMES = {
 def get_organized_path(base_salida: Path, empresa: str, fecha: date, sucursal: str, nro_reparto: str) -> Path:
     """
     Constructs the organized hierarchical path for a reparto:
-    base_salida / Year / Company / Sucursal Name / Month / Day / Sucursal_NroReparto
+    base_salida / Empresa / Year / Sucursal Name / Month / Day / Sucursal_NroReparto
     """
-    year_str = str(fecha.year)
     empresa_str = empresa.upper().strip()
+    year_str = str(fecha.year)
     
     # Map sucursal code to full name
     suc_code = sucursal.upper().strip()
@@ -44,7 +59,7 @@ def get_organized_path(base_salida: Path, empresa: str, fecha: date, sucursal: s
     
     folder_name = f"{suc_code}_{nro_reparto}"
     
-    return base_salida / year_str / empresa_str / sucursal_name / month_name / day_str / folder_name
+    return base_salida / empresa_str / year_str / sucursal_name / month_name / day_str / folder_name
 
 
 def generate_safe_dest_path(dest_path: Path) -> Path:
