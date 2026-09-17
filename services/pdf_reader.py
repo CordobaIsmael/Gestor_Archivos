@@ -103,6 +103,19 @@ class PDFReader:
             metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal)
             metadata["nro_reparto"] = match.group(2)
             metadata["is_hoja_reparto"] = True
+        else:
+            # Fallback: Look for standalone Sucursal code + Reparto number in text
+            sucursal_candidates = [
+                "BB", "NQ", "NQN", "CF", "MP", "MDP", "RO", "ROS", 
+                "OL", "OLA", "TA", "TAN", "AR", "AZ", "CO", "COR", "CBA", "RE", "REG"
+            ]
+            suc_regex = r"\b(" + "|".join(sucursal_candidates) + r")\s+(\d{4,8})\b"
+            match_fallback = re.search(suc_regex, text, re.IGNORECASE)
+            if match_fallback:
+                raw_sucursal = match_fallback.group(1)
+                metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal)
+                metadata["nro_reparto"] = match_fallback.group(2)
+                metadata["is_hoja_reparto"] = True
             
         # 3. Check for Date
         date_pattern = re.compile(r"\b(\d{2}/\d{2}/\d{4})\b")
@@ -143,25 +156,36 @@ class PDFReader:
             if len(doc) == 0:
                 return metadata
             
-            # Combine all text blocks from the first page
+            # Combine all text blocks from the first page in visual reading order
             page = doc[0]
-            blocks = page.get_text("blocks")
+            blocks = page.get_text("blocks", sort=True)
             full_text = "\n".join([b[4] for b in blocks])
             doc.close()
             
             # Parse metadata from native text
             metadata = cls._parse_text_metadata(full_text)
             
-            # If native text extraction failed to find the Empresa, try Tesseract OCR fallback!
-            if not metadata["empresa"]:
+            # If any critical field is missing, trigger Tesseract OCR fallback!
+            has_complete_metadata = (
+                metadata["empresa"] and 
+                metadata["sucursal"] and 
+                metadata["nro_reparto"] and 
+                metadata["fecha"]
+            )
+            
+            if not has_complete_metadata:
                 tess_exe = cls.find_tesseract()
                 if tess_exe:
-                    print(f"Native text extraction failed for {pdf_path.name}. Falling back to Tesseract OCR...")
+                    print(f"Missing critical metadata for {pdf_path.name}. Falling back to Tesseract OCR...")
                     ocr_text = cls.ocr_pdf_page(pdf_path, 0, tess_exe)
                     if ocr_text:
-                        metadata = cls._parse_text_metadata(ocr_text)
-                        if metadata["empresa"]:
-                            print(f"Successfully extracted metadata via Tesseract OCR for {pdf_path.name}: {metadata}")
+                        ocr_metadata = cls._parse_text_metadata(ocr_text)
+                        for k, v in ocr_metadata.items():
+                            if v is not None and metadata.get(k) is None:
+                                metadata[k] = v
+                        if metadata["empresa"] and metadata["sucursal"] and metadata["nro_reparto"]:
+                            metadata["is_hoja_reparto"] = True
+                            print(f"Successfully completed metadata via Tesseract OCR for {pdf_path.name}: {metadata}")
             
         except Exception as e:
             print(f"Error reading PDF {pdf_path}: {e}")
