@@ -180,7 +180,16 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
     folder_path = Path(reparto['ruta_nueva'])
     folder_name = folder_path.name
     
-    with st.expander(f"📁 {folder_name} (ID: {reparto['id']})"):
+    # Keep expander open if user has interacted with any field or selected a PDF in this reparto
+    is_active = (
+        f"pdf_sel_{reparto['id']}" in st.session_state or 
+        f"pdf_page_{reparto['id']}" in st.session_state or
+        f"suc_{reparto['id']}" in st.session_state or
+        f"num_{reparto['id']}" in st.session_state or
+        f"emp_{reparto['id']}" in st.session_state
+    )
+    
+    with st.expander(f"📁 {folder_name} (ID: {reparto['id']})", expanded=is_active):
         st.markdown(f"**Ruta actual de revisión:** `{reparto['ruta_nueva']}`")
         
         # Split layout: Left column for the form, Right column for the PDF viewer
@@ -232,91 +241,99 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
             default_date = date.today()
             if reparto["fecha"]:
                 try:
-                    default_date = date.fromisoformat(reparto["fecha"])
-                except Exception:
+                    default_date = datetime.strptime(reparto["fecha"], "%Y-%m-%d").date()
+                except ValueError:
                     pass
             
             fecha = st.date_input(
                 "Fecha de Reparto", 
-                value=default_date,
-                key=f"fec_{reparto['id']}",
-                format="DD/MM/YYYY"
+                value=default_date, 
+                format="DD/MM/YYYY",
+                key=f"fecha_{reparto['id']}"
             )
             
             sucursal = st.text_input(
                 "Sucursal (BB, CF, NQ, MP, RO, OL, TA, AR, AZ, CO, RE)", 
-                value=reparto["sucursal"] or "",
+                value=reparto["sucursal"] if reparto["sucursal"] else "",
+                placeholder="Ej. BB",
                 key=f"suc_{reparto['id']}"
             )
             
             nro_reparto = st.text_input(
                 "Número de Reparto", 
-                value=reparto["nro_reparto"] or "",
-                key=f"nro_{reparto['id']}"
+                value=reparto["nro_reparto"] if reparto["nro_reparto"] else "",
+                placeholder="Ej. 138232",
+                key=f"num_{reparto['id']}"
             )
             
-            # Form for missing guias resolution status
+            # Resolution for missing guias
             resolucion_inputs = {}
             if reparto.get("guias_faltantes"):
                 st.markdown("---")
-                st.markdown("##### 📝 Declaración de Guías Faltantes")
-                st.info("Para completar la organización manual, por favor indica el estado de cada guía ausente:")
+                st.markdown("##### 🔍 Gestión de Guías Faltantes")
+                st.info("Para cada guía que no se encontró físicamente, selecciona el motivo o ingresa una observación:")
+                
                 faltantes_list = [g.strip() for g in reparto["guias_faltantes"].split(",") if g.strip()]
+                
+                opciones_resolucion = [
+                    "Guía no entregada (Reclamar a chofer)",
+                    "Guía extraviada",
+                    "Entregada sin remito físico",
+                    "Reimpresión posterior",
+                    "Otro motivo"
+                ]
+                
                 for g in faltantes_list:
-                    st.markdown(f"📍 **Guía: `{g}`**")
-                    est_key = f"est_missing_{reparto['id']}_{g}"
-                    obs_key = f"obs_missing_{reparto['id']}_{g}"
-                    
-                    estado_guia = st.selectbox(
-                        f"Estado de {g}:",
-                        options=[
-                            "La guía sí está en el reparto",
-                            "La guía volvió a depósito",
-                            "Otro"
-                        ],
-                        key=est_key
-                    )
-                    
-                    observacion = ""
-                    if estado_guia == "Otro":
+                    st.markdown(f"**Guía `{g}`:**")
+                    col_est, col_obs = st.columns([1, 1])
+                    with col_est:
+                        estado_res = st.selectbox(
+                            f"Estado / Motivo ({g})",
+                            options=opciones_resolucion,
+                            key=f"res_estado_{reparto['id']}_{g}"
+                        )
+                    with col_obs:
                         observacion = st.text_input(
-                            f"Observación de {g}:",
-                            key=obs_key,
-                            placeholder="Ej. Se mojó el papel / Se entregará mañana..."
+                            f"Observación ({g})",
+                            key=f"res_obs_{reparto['id']}_{g}",
+                            placeholder="Ej. Justificado por encargado..."
                         )
                         
                     resolucion_inputs[g] = {
-                        "estado": estado_guia,
+                        "estado": estado_res,
                         "observacion": observacion
                     }
 
-            # Form for unsigned guias resolution status
+            # Resolution for unsigned guias
             resolucion_firma_inputs = {}
             if reparto.get("guias_sin_firma"):
                 st.markdown("---")
-                st.markdown("##### ✍️ Declaración de Guías Sin Firma")
-                st.info("Indica la resolución para las guías donde no se detectó la firma del cliente:")
+                st.markdown("##### ✍️ Gestión de Guías Sin Firma")
+                st.info("Las siguientes guías fueron digitalizadas pero **no tienen firma detectada**. Indica el motivo para autorizar el archivo:")
+                
                 sin_firma_list = [g.strip() for g in reparto["guias_sin_firma"].split(",") if g.strip()]
+                
+                opciones_firma = [
+                    "Firma ilegible / Trazo tenue",
+                    "Entregado con conformidad verbal / digital",
+                    "Reclamar firma al chofer",
+                    "Firma en otra hoja / anexo",
+                    "Autorizado por supervisor"
+                ]
+                
                 for g in sin_firma_list:
-                    st.markdown(f"🖋️ **Guía: `{g}`**")
-                    est_key = f"est_nosig_{reparto['id']}_{g}"
-                    obs_key = f"obs_nosig_{reparto['id']}_{g}"
-                    
-                    estado_firma = st.selectbox(
-                        f"Resolución de firma para {g}:",
-                        options=[
-                            "Firma válida (Aprobación manual / Firma poco legible)",
-                            "Aceptada sin firma (Autorizado)",
-                            "Reclamar firma al chofer / depósito"
-                        ],
-                        key=est_key
-                    )
-                    
-                    observacion_f = ""
-                    if "Aceptada sin firma" in estado_firma or "Reclamar" in estado_firma:
+                    st.markdown(f"**Guía `{g}`:**")
+                    col_est_f, col_obs_f = st.columns([1, 1])
+                    with col_est_f:
+                        estado_firma = st.selectbox(
+                            f"Motivo sin firma ({g})",
+                            options=opciones_firma,
+                            key=f"res_firma_estado_{reparto['id']}_{g}"
+                        )
+                    with col_obs_f:
                         observacion_f = st.text_input(
-                            f"Observación de firma para {g}:",
-                            key=obs_key,
+                            f"Observación ({g})",
+                            key=f"res_firma_obs_{reparto['id']}_{g}",
                             placeholder="Ej. Cliente autorizó por WhatsApp / Reclamar a chofer..."
                         )
                         
@@ -372,7 +389,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
             # Scan for PDF files in the revision directory
             pdf_files = []
             if folder_path.exists() and folder_path.is_dir():
-                pdf_files = list(folder_path.glob("*.pdf"))
+                pdf_files = sorted(list(folder_path.glob("*.pdf")), key=lambda p: p.name)
                 
             if not pdf_files:
                 st.warning("No se encontraron archivos PDF en esta carpeta.")
@@ -387,6 +404,12 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                 )
                 
                 selected_pdf_path = pdf_options[selected_pdf_name]
+                
+                # Direct full-tab link in Chrome
+                st.markdown(
+                    f"<a href='{API_URL}/api/repartos/{reparto['id']}/files/{selected_pdf_name}' target='_blank' style='display:inline-block; margin-bottom: 8px; font-size: 0.85rem; color: #3b82f6; text-decoration: none; font-weight: bold;'>🔗 Abrir este PDF en pestaña completa de Chrome</a>",
+                    unsafe_allow_html=True
+                )
                 
                 try:
                     # Open the PDF using PyMuPDF (fitz)
