@@ -195,14 +195,10 @@ class PDFReader:
     @classmethod
     def extract_expected_guias_and_exclusions(cls, pdf_path: Path) -> Dict[str, list]:
         """
-        Extracts all expected guias from the Hoja de Reparto, inspecting the 'NO' checkbox column
-        to identify any guias marked as not delivered (to be excluded from physical digitization control).
-        Returns:
-            {
-                "todas_guias": list,
-                "guias_a_controlar": list,
-                "guias_no_entregadas": list
-            }
+        Extracts all expected guias from the Hoja de Reparto.
+        Automatically detects whether the sheet is OLD FORMAT (Orig./Dest. CO CC columns with printed X's)
+        or NEW FORMAT (explicit 'NO' checkbox column).
+        Only inspects the 'NO' checkbox column for exclusions if NEW FORMAT is detected.
         """
         result = {
             "todas_guias": [],
@@ -222,25 +218,17 @@ class PDFReader:
             w, h = page.rect.width, page.rect.height
             words = page.get_text("words")
             
-            # 1. Locate the 'NO' column position
+            # 1. Detect Format: Old Format vs New Format
+            is_new_format = False
             no_x_pos = None
+            
             for w_item in words:
                 txt = w_item[4].strip().upper()
                 if txt == "NO" and 60 < w_item[1] < 180:
                     no_x_pos = (w_item[0] + w_item[2]) / 2.0
+                    is_new_format = True
                     break
                     
-            if not no_x_pos:
-                # Estimate from 'IMPORTE' + offset
-                for w_item in words:
-                    txt = w_item[4].strip().upper()
-                    if "IMPORTE" in txt and 60 < w_item[1] < 180:
-                        no_x_pos = w_item[2] + 28.0
-                        break
-                        
-            if not no_x_pos:
-                no_x_pos = w * 0.65
-                
             # 2. Extract guide occurrences with their y-coordinates
             pattern = re.compile(r'([A-Z]\s*\.\s*\d+\s*\.\s*\d+)')
             guide_rows = []
@@ -294,37 +282,40 @@ class PDFReader:
                 todas.append(code)
                 yc = gr["y_center"]
                 
-                # Checkbox ROI centered on no_x_pos
-                box_roi = fitz.Rect(no_x_pos - 12, yc - 9, no_x_pos + 12, yc + 9)
-                pix = page.get_pixmap(clip=box_roi, dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
-                
-                # Analyze inner region (center 60% of the box)
-                w_img, h_img = img.size
-                if w_img > 4 and h_img > 4:
-                    inner_box = img.crop((int(w_img * 0.2), int(h_img * 0.2), int(w_img * 0.8), int(h_img * 0.8)))
-                    inner_pixels = list(inner_box.get_flattened_data())
-                    inner_total = len(inner_pixels)
-                    inner_dark = sum(1 for p in inner_pixels if p < 150)
-                    inner_ratio = (inner_dark / inner_total) * 100 if inner_total > 0 else 0
-                else:
-                    inner_ratio = 0
+                # Only check checkbox if it's the NEW FORMAT with the official 'NO' column
+                if is_new_format and no_x_pos is not None:
+                    # Checkbox ROI centered on no_x_pos
+                    box_roi = fitz.Rect(no_x_pos - 12, yc - 9, no_x_pos + 12, yc + 9)
+                    pix = page.get_pixmap(clip=box_roi, dpi=150)
+                    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
                     
-                pixels = list(img.get_flattened_data())
-                total = len(pixels)
-                dark = sum(1 for p in pixels if p < 150)
-                overall_ratio = (dark / total) * 100 if total > 0 else 0
-                
-                # Marked checkbox threshold
-                if inner_ratio >= 10.0 or overall_ratio >= 18.0:
-                    no_entregadas.append(code)
-                else:
-                    a_controlar.append(code)
+                    # Analyze inner region (center 60% of the box)
+                    w_img, h_img = img.size
+                    if w_img > 4 and h_img > 4:
+                        inner_box = img.crop((int(w_img * 0.2), int(h_img * 0.2), int(w_img * 0.8), int(h_img * 0.8)))
+                        inner_pixels = list(inner_box.get_flattened_data())
+                        inner_total = len(inner_pixels)
+                        inner_dark = sum(1 for p in inner_pixels if p < 150)
+                        inner_ratio = (inner_dark / inner_total) * 100 if inner_total > 0 else 0
+                    else:
+                        inner_ratio = 0
+                        
+                    pixels = list(img.get_flattened_data())
+                    total = len(pixels)
+                    dark = sum(1 for p in pixels if p < 150)
+                    overall_ratio = (dark / total) * 100 if total > 0 else 0
                     
+                    # Marked checkbox threshold
+                    if inner_ratio >= 10.0 or overall_ratio >= 18.0:
+                        no_entregadas.append(code)
+                        continue
+                        
+                a_controlar.append(code)
+                
             doc.close()
-            result["todas_guias"] = sorted(list(set(todas)))
-            result["guias_a_controlar"] = sorted(list(set(a_controlar)))
-            result["guias_no_entregadas"] = sorted(list(set(no_entregadas)))
+            result["todas_guias"] = todas
+            result["guias_a_controlar"] = a_controlar
+            result["guias_no_entregadas"] = no_entregadas
             return result
         except Exception as e:
             print(f"Error extracting expected guias with exclusions from {pdf_path.name}: {e}")
