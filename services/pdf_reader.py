@@ -86,10 +86,39 @@ class PDFReader:
             "is_hoja_reparto": False
         }
         
+        text_upper = text.upper()
+        
+        # 0. Anti-Factura / Anti-Guía Check:
+        # If the document is an Invoice, Receipt or Guide, it is NEVER a Hoja de Reparto!
+        is_invoice = (
+            "FACTURA" in text_upper or 
+            "CAE N" in text_upper or 
+            "CAE Nº" in text_upper or 
+            "FACTURA ELECTRONICA" in text_upper or 
+            "TIPO DE IVA" in text_upper or 
+            "CONDICIONES AL DORSO" in text_upper or
+            "SEGUIMIENTO WEB" in text_upper or
+            "DOCS. ASOCIADOS" in text_upper
+        )
+        if is_invoice:
+            metadata["is_hoja_reparto"] = False
+            return metadata
+            
+        # Must have positive indicators of Hoja de Reparto
+        has_reparto_keywords = (
+            "REPARTO" in text_upper or 
+            "MERCADERIA A ENTREGAR" in text_upper or 
+            "MERCADERÍA A ENTREGAR" in text_upper or
+            "HOJA DE REPARTO" in text_upper
+        )
+        if not has_reparto_keywords:
+            metadata["is_hoja_reparto"] = False
+            return metadata
+
         # 1. Check for Empresa
-        if "INTERPROVINCIAL" in text.upper():
+        if "INTERPROVINCIAL" in text_upper:
             metadata["empresa"] = "INTERPROVINCIAL"
-        elif "OTAPEYA" in text.upper():
+        elif "OTAPEYA" in text_upper:
             metadata["empresa"] = "OTAPEYA"
             
         if not metadata["empresa"]:
