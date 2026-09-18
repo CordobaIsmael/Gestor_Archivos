@@ -314,28 +314,45 @@ class PDFReader:
                 # Only check checkbox if it's the NEW FORMAT with the official 'NO' column
                 if is_new_format and no_x_pos is not None:
                     # Checkbox ROI centered on no_x_pos
-                    box_roi = fitz.Rect(no_x_pos - 12, yc - 9, no_x_pos + 12, yc + 9)
+                    box_roi = fitz.Rect(no_x_pos - 15, yc - 10, no_x_pos + 15, yc + 10)
                     pix = page.get_pixmap(clip=box_roi, dpi=150)
                     img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
-                    
-                    # Analyze inner region (center 60% of the box)
                     w_img, h_img = img.size
-                    if w_img > 4 and h_img > 4:
-                        inner_box = img.crop((int(w_img * 0.2), int(h_img * 0.2), int(w_img * 0.8), int(h_img * 0.8)))
-                        inner_pixels = list(inner_box.get_flattened_data())
-                        inner_total = len(inner_pixels)
-                        inner_dark = sum(1 for p in inner_pixels if p < 150)
-                        inner_ratio = (inner_dark / inner_total) * 100 if inner_total > 0 else 0
-                    else:
-                        inner_ratio = 0
-                        
-                    pixels = list(img.get_flattened_data())
-                    total = len(pixels)
-                    dark = sum(1 for p in pixels if p < 150)
-                    overall_ratio = (dark / total) * 100 if total > 0 else 0
                     
-                    # Marked checkbox threshold
-                    if inner_ratio >= 10.0 or overall_ratio >= 18.0:
+                    # Locate the bounding box of the square [ ] in the central area
+                    min_x, max_x = w_img, 0
+                    min_y, max_y = h_img, 0
+                    y_start, y_end = int(h_img * 0.1), int(h_img * 0.85)
+                    x_start, x_end = int(w_img * 0.15), int(w_img * 0.85)
+                    
+                    for y_p in range(y_start, y_end):
+                        for x_p in range(x_start, x_end):
+                            if img.getpixel((x_p, y_p)) < 160:
+                                if x_p < min_x: min_x = x_p
+                                if x_p > max_x: max_x = x_p
+                                if y_p < min_y: min_y = y_p
+                                if y_p > max_y: max_y = y_p
+                                
+                    box_w = max_x - min_x
+                    box_h = max_y - min_y
+                    
+                    is_marked = False
+                    if 10 <= box_w <= 45 and 10 <= box_h <= 45:
+                        # Sample strictly inside the box interior, eroding 3px from borders
+                        inner_x1 = min_x + 3
+                        inner_x2 = max_x - 3
+                        inner_y1 = min_y + 3
+                        inner_y2 = max_y - 3
+                        
+                        if inner_x2 > inner_x1 and inner_y2 > inner_y1:
+                            inner_pixels = [img.getpixel((xp, yp)) for yp in range(inner_y1, inner_y2 + 1) for xp in range(inner_x1, inner_x2 + 1)]
+                            total_inner = len(inner_pixels)
+                            dark_inner = sum(1 for p in inner_pixels if p < 160)
+                            fill_pct = (dark_inner / total_inner) * 100 if total_inner > 0 else 0
+                            if fill_pct >= 10.0:
+                                is_marked = True
+                                
+                    if is_marked:
                         no_entregadas.append(code)
                         continue
                         
