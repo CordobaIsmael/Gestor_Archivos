@@ -9,9 +9,9 @@ import shutil
 class PDFReader:
     @staticmethod
     def normalize_sucursal(sucursal_raw: str) -> str:
-        """Normalizes common OCR misread sucursales (e.g. 8B, 88 -> BB)."""
+        """Normalizes common OCR misread sucursales."""
         s = sucursal_raw.upper().strip()
-        # Common OCR fixes for BB
+        # Common OCR fixes for BB (Bahia Blanca)
         if s in ["8B", "88", "B8", "B6", "86", "6B", "66", "B0", "0B"]:
             return "BB"
         # Common OCR fixes for NQ (Neuquen)
@@ -20,6 +20,24 @@ class PDFReader:
         # Common OCR fixes for MP (Mar del Plata)
         if s in ["MDP", "MP1", "MP0"]:
             return "MP"
+        # Fixes for VR (Villa Regina)
+        if s in ["RE", "REG", "VR1", "VR0", "V0"]:
+            return "VR"
+        # Fixes for CO (Cordoba)
+        if s in ["COR", "CBA", "C0"]:
+            return "CO"
+        # Fixes for OL (Olavarria)
+        if s in ["OLA", "0L"]:
+            return "OL"
+        # Fixes for TA (Tres Arroyos)
+        if s in ["AR", "TAR"]:
+            return "TA"
+        # Fixes for RC (Rio Colorado)
+        if s in ["RC1", "RC0", "R0"]:
+            return "RC"
+        # Fixes for CH (Choele Choel)
+        if s in ["CH1", "CH0"]:
+            return "CH"
         return s
 
     @classmethod
@@ -135,8 +153,9 @@ class PDFReader:
         else:
             # Fallback: Look for standalone Sucursal code + Reparto number in text
             sucursal_candidates = [
-                "BB", "NQ", "NQN", "CF", "MP", "MDP", "RO", "ROS", 
-                "OL", "OLA", "TA", "TAN", "AR", "AZ", "CO", "COR", "CBA", "RE", "REG"
+                "MP", "MDP", "TA", "AR", "CO", "COR", "CBA", "OL", "OLA",
+                "VR", "RE", "REG", "RC", "CH", "BB", "NQ", "NQN", "CF", 
+                "RO", "ROS", "AZ"
             ]
             suc_regex = r"\b(" + "|".join(sucursal_candidates) + r")\s+(\d{4,8})\b"
             match_fallback = re.search(suc_regex, text, re.IGNORECASE)

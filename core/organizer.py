@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import os
 
 from config.settings import settings
-from models.database import Reparto, Caja
+from models.database import Reparto
 from services.pdf_reader import PDFReader
 from services.file_manager import move_directory, get_organized_path
 
@@ -73,29 +73,6 @@ def process_incoming_folders(
     if not entrada_path.exists():
         print(f"Path does not exist: {entrada_path}")
         return results
-        
-    caja_id = None
-    if modo_historico:
-        # Search or create the virtual CAJA-HISTORICA-DIGITAL box
-        hist_caja = db.query(Caja).filter(Caja.codigo == "CAJA-HISTORICA-DIGITAL").first()
-        if not hist_caja:
-            hist_caja = Caja(codigo="CAJA-HISTORICA-DIGITAL", estado="HISTORICA")
-            db.add(hist_caja)
-            db.commit()
-            db.refresh(hist_caja)
-        caja_id = hist_caja.id
-    else:
-        # Get active box for this operator (or global active box)
-        if usuario_id:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
-            if not active_caja:
-                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-        else:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-
-        if not active_caja:
-            raise ValueError("No tienes una caja activa abierta. Debes abrir una caja antes de procesar entrada.")
-        caja_id = active_caja.id
         
     # Find all folders containing PDF files directly, sorted by depth (deepest first)
     pdf_folders = find_folders_with_pdfs(entrada_path)
@@ -171,7 +148,7 @@ def process_incoming_folders(
             has_missing_guias = len(faltantes_acc) > 0
             has_unsigned_guias = len(sin_firma_acc) > 0
             
-            # In Historical Mode, we don't block organization
+            # In Historical Mode, we don't block organization for missing guias/signatures
             if modo_historico:
                 has_missing_guias = False
                 has_unsigned_guias = False
@@ -189,10 +166,9 @@ def process_incoming_folders(
             ).first()
             if existing_rep:
                 is_duplicate = True
-                caja_info = existing_rep.caja.codigo if existing_rep.caja else "S/C"
                 op_info = existing_rep.usuario_legajo or "S/A"
                 fecha_info = existing_rep.fecha.isoformat() if existing_rep.fecha else "S/F"
-                duplicate_reason = f"POSIBLE DUPLICADO: El reparto {suc_chk}_{num_chk} ya fue organizado previamente (Caja: {caja_info}, Operador: {op_info}, Fecha: {fecha_info})."
+                duplicate_reason = f"POSIBLE DUPLICADO: El reparto {suc_chk}_{num_chk} ya fue organizado previamente (Operador: {op_info}, Fecha: {fecha_info})."
 
         # Check if the detected sucursal is officially valid
         is_valid_sucursal = (
@@ -216,11 +192,11 @@ def process_incoming_folders(
             nro_reparto = metadata_found["nro_reparto"]
             
             dest_path = get_organized_path(
-                base_salida=salida_base,
                 empresa=empresa,
                 fecha=metadata_found["fecha"],
                 sucursal=sucursal,
-                nro_reparto=nro_reparto
+                nro_reparto=nro_reparto,
+                base_salida=custom_salida
             )
             
             try:
@@ -241,7 +217,6 @@ def process_incoming_folders(
                     ruta_original=original_path_str,
                     ruta_nueva=str(final_dest.resolve()),
                     estado="ORGANIZADO",
-                    caja_id=caja_id,
                     usuario_id=usuario_id,
                     usuario_legajo=usuario_legajo,
                     guias_encontradas=guias_encontradas_str,
@@ -319,16 +294,6 @@ def send_to_revision(
             
             nro_reparto = metadata_found.get("nro_reparto")
             
-        # Get active box if any
-        if usuario_id:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
-            if not active_caja:
-                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-        else:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-
-        caja_id = active_caja.id if active_caja else None
-
         reparto_db = Reparto(
             empresa=empresa,
             sucursal=sucursal,
@@ -337,7 +302,6 @@ def send_to_revision(
             ruta_original=original_path_str,
             ruta_nueva=str(final_dest.resolve()),
             estado="EN_REVISION",
-            caja_id=caja_id,
             usuario_id=usuario_id,
             usuario_legajo=usuario_legajo,
             guias_encontradas=guias_encontradas,
@@ -399,12 +363,11 @@ def resolve_revision_folder(
     ).first()
     
     if existing_dup and not permitir_duplicado:
-        caja_code = existing_dup.caja.codigo if existing_dup.caja else "S/C"
         op_code = existing_dup.usuario_legajo or "S/A"
         fecha_dup = existing_dup.fecha.isoformat() if existing_dup.fecha else "S/F"
         raise ValueError(
             f"DUPLICADO_DETECTADO: Ya existe un reparto organizado con el código '{sucursal_clean}_{num_clean}' "
-            f"(Caja: {caja_code}, Operador: {op_code}, Fecha: {fecha_dup}). "
+            f"(Operador: {op_code}, Fecha: {fecha_dup}). "
             f"Verifica el número o tilda la opción para permitir guardar como duplicado."
         )
 
@@ -461,13 +424,12 @@ def resolve_revision_folder(
         guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
         guias_sin_firma_str = ",".join(sin_firma_acc) if sin_firma_acc else None
 
-    salida_base = custom_salida if custom_salida is not None else Path(settings.SALIDA)
     dest_path = get_organized_path(
-        base_salida=salida_base,
         empresa=empresa,
         fecha=fecha_obj,
         sucursal=sucursal,
-        nro_reparto=nro_reparto
+        nro_reparto=nro_reparto,
+        base_salida=custom_salida
     )
     
     # Move folder from Revision to Salida
@@ -508,27 +470,6 @@ def resolve_revision_folder(
         reparto.resolucion_guias_sin_firma = json.dumps(resolucion_guias_sin_firma)
     else:
         reparto.resolucion_guias_sin_firma = None
-    
-    # If in historical mode, assign to the virtual box. Otherwise, assign the currently active physical box.
-    if modo_historico:
-        hist_caja = db.query(Caja).filter(Caja.codigo == "CAJA-HISTORICA-DIGITAL").first()
-        if not hist_caja:
-            hist_caja = Caja(codigo="CAJA-HISTORICA-DIGITAL", estado="HISTORICA")
-            db.add(hist_caja)
-            db.commit()
-            db.refresh(hist_caja)
-        reparto.caja_id = hist_caja.id
-    elif not reparto.caja_id:
-        if usuario_id:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA", Caja.usuario_id == usuario_id).first()
-            if not active_caja:
-                active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-        else:
-            active_caja = db.query(Caja).filter(Caja.estado == "ACTIVA").first()
-
-        if not active_caja:
-            raise ValueError("No hay una caja activa abierta. Debes abrir una caja antes de organizar el reparto.")
-        reparto.caja_id = active_caja.id
     
     db.commit()
     db.refresh(reparto)

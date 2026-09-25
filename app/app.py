@@ -6,10 +6,13 @@ from datetime import datetime, date
 import sys
 import subprocess
 
-# Add project root to sys.path to enable config imports
+# Add project root and app folder to sys.path
 root_dir = Path(__file__).resolve().parent.parent
+app_dir = Path(__file__).resolve().parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
+if str(app_dir) not in sys.path:
+    sys.path.insert(0, str(app_dir))
 
 from config.settings import settings, get_persisted_paths, save_persisted_paths
 
@@ -33,6 +36,7 @@ def format_date_display(fecha_str: str) -> str:
         return datetime.strptime(fecha_str, "%Y-%m-%d").strftime("%d/%m/%Y")
     except ValueError:
         return fecha_str
+
 from ui_components import (
     inject_custom_css, 
     render_header, 
@@ -95,44 +99,14 @@ def force_rerun():
     """Forces streamlit to refresh the dashboard."""
     st.rerun()
 
-@st.dialog("Confirmar Cierre de Caja")
-def close_caja_dialog(codigo_caja: str):
-    st.warning(f"⚠️ Estás por archivar la **{codigo_caja}** de forma definitiva.")
-    st.write("¿La caja ya está llena y realmente deseas cerrarla para archivarla definitivamente?")
-    st.info("Al hacerlo, se generará la etiqueta en Word (.docx) y se abrirá automáticamente.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Sí, cerrar y archivar", use_container_width=True):
-            try:
-                res_close = requests.post(
-                    f"{API_URL}/api/cajas/active/close",
-                    json={"usuario_id": current_user["id"]}
-                )
-                if res_close.status_code == 200:
-                    st.toast(f"Caja {codigo_caja} archivada y etiqueta abierta en Word.")
-                    st.rerun()
-                else:
-                    st.error(res_close.json().get("detail", "Error al cerrar."))
-            except Exception as ex:
-                st.error(f"Error de conexión: {ex}")
-    with col2:
-        if st.button("No, cancelar", use_container_width=True):
-            st.rerun()
-
 # Fetch records from database (via API)
 all_repartos = []
-active_caja = None
 try:
     res = requests.get(f"{API_URL}/api/repartos")
     if res.status_code == 200:
         all_repartos = res.json()
     else:
         st.error("Error al cargar datos desde el backend.")
-        
-    res_caja = requests.get(f"{API_URL}/api/cajas/active?usuario_id={current_user['id']}")
-    if res_caja.status_code == 200:
-        active_caja = res_caja.json()
 except Exception as e:
     st.warning("El servidor backend no está respondiendo. Por favor, asegúrate de que el backend esté iniciado.")
     st.info("Puedes iniciar el servidor backend ejecutando el archivo `launcher.py` en tu terminal.")
@@ -174,145 +148,47 @@ st.sidebar.info(
     "las carpetas según su **Hoja de Reparto**."
 )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📂 Selección de Carpeta")
-
-# Load persistent directory paths from user_config.json
-persisted_paths = get_persisted_paths()
-
-if "scan_path_input" not in st.session_state:
-    st.session_state["scan_path_input"] = persisted_paths.get("scan_path", str(Path(settings.ENTRADA).resolve()))
-
-if "salida_path_input" not in st.session_state:
-    st.session_state["salida_path_input"] = persisted_paths.get("salida_path", str(Path(settings.SALIDA).resolve()))
-
-# Apply picker updates BEFORE widgets are instantiated to avoid StreamlitAPIException
-if "selected_scan_path" in st.session_state:
-    new_scan = st.session_state.pop("selected_scan_path")
-    st.session_state["scan_path_input"] = new_scan
-    save_persisted_paths(scan_path=new_scan)
-
-if "selected_salida_path" in st.session_state:
-    new_salida = st.session_state.pop("selected_salida_path")
-    st.session_state["salida_path_input"] = new_salida
-    save_persisted_paths(salida_path=new_salida)
-
-def on_scan_path_change():
-    save_persisted_paths(scan_path=st.session_state.get("scan_path_input"))
-
-def on_salida_path_change():
-    save_persisted_paths(salida_path=st.session_state.get("salida_path_input"))
-
-# Folder to scan: Text input + picker button
-col_scan_text, col_scan_btn = st.sidebar.columns([4, 1])
-with col_scan_text:
-    scan_path = st.text_input(
-        "Carpeta a escanear:",
-        help="Ruta absoluta de la carpeta a procesar. Se recordará en todas las sesiones.",
-        key="scan_path_input",
-        on_change=on_scan_path_change
-    )
-
-with col_scan_btn:
-    st.write("") # vertical alignment spacing
-    st.write("")
-    if st.button("📁", key="btn_pick_scan", help="Seleccionar carpeta de entrada..."):
-        selected = select_directory_dialog(st.session_state["scan_path_input"])
-        if selected:
-            st.session_state["selected_scan_path"] = str(Path(selected).resolve())
-            st.rerun()
-
-# Output folder: Text input + picker button
-col_sal_text, col_sal_btn = st.sidebar.columns([4, 1])
-with col_sal_text:
-    salida_path = st.text_input(
-        "Carpeta de Salida:",
-        help="Ruta absoluta de la carpeta donde se moverán los archivos organizados. Se recordará en todas las sesiones.",
-        key="salida_path_input",
-        on_change=on_salida_path_change
-    )
-
-with col_sal_btn:
-    st.write("") # vertical alignment spacing
-    st.write("")
-    if st.button("📁", key="btn_pick_salida", help="Seleccionar carpeta de salida..."):
-        selected = select_directory_dialog(st.session_state["salida_path_input"])
-        if selected:
-            st.session_state["selected_salida_path"] = str(Path(selected).resolve())
-            st.rerun()
-
-st.sidebar.markdown(f"**Revisión:** `{settings.REVISION}`")
-st.sidebar.markdown("---")
-
 # Select processing mode
 modo_seleccionado = st.sidebar.radio(
     "Modo de Digitalización:",
     options=[
         "Operación Estándar (Control Completo)",
-        "Histórico Anterior (Virtual)"
+        "Histórico Anterior (Flexible)"
     ],
     index=0,
     help=(
-        "**Operación Estándar:** Requiere tener una caja física activa, valida metadatos oficiales y exige control de guías faltantes y firmas.\n\n"
-        "**Histórico Anterior:** No requiere caja física (asigna a CAJA-HISTORICA-DIGITAL) y digitaliza sin frenar por faltantes o firmas."
+        "**Operación Estándar:** Valida metadatos oficiales y exige control de guías faltantes y firmas.\n\n"
+        "**Histórico Anterior:** Digitaliza sin frenar a revisión por guías faltantes o firmas no detectadas."
     )
 )
 
-modo_historico = (modo_seleccionado == "Histórico Anterior (Virtual)")
+modo_historico = (modo_seleccionado == "Histórico Anterior (Flexible)")
 
 # Action button to trigger processing
 if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_width=True):
-    if not scan_path:
-        st.sidebar.error("Por favor especifique la ruta de la carpeta a escanear.")
-    else:
-        with st.spinner("Procesando archivos PDF en la carpeta de entrada..."):
-            try:
-                payload = {
-                    "path": scan_path.strip(),
-                    "salida_path": salida_path.strip() if salida_path else None,
-                    "modo_historico": modo_historico,
-                    "usuario_id": current_user["id"],
-                    "usuario_legajo": current_user["legajo"]
-                }
-                res = requests.post(f"{API_URL}/api/process", json=payload)
-                if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    organizados = data.get("organizados", [])
-                    revision = data.get("revision", [])
-                    
-                    if organizados or revision:
-                        st.toast(f"Procesados: {len(organizados)} organizados, {len(revision)} a revisión.")
-                    else:
-                        st.toast("No se encontraron carpetas nuevas con PDFs.")
-                else:
-                    st.sidebar.error(f"Error: {res.json().get('detail', 'Error desconocido')}")
-            except Exception as e:
-                st.sidebar.error(f"No se pudo conectar al servidor backend: {e}")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📦 Mi Caja de Archivo Físico")
-
-if active_caja:
-    st.sidebar.success(f"**Caja Activa Asignada:** `{active_caja['codigo']}`")
-    if st.sidebar.button("🔒 Cerrar Mi Caja Activa", use_container_width=True):
-        close_caja_dialog(active_caja['codigo'])
-else:
-    st.sidebar.info("No tienes una caja activa abierta. Abre una caja para comenzar a digitalizar.")
-    if st.sidebar.button("➕ Abrir Mi Siguiente Caja", use_container_width=True):
+    with st.spinner("Procesando archivos PDF en la carpeta de entrada..."):
         try:
-            res_new = requests.post(
-                f"{API_URL}/api/cajas/new", 
-                json={"usuario_id": current_user["id"], "usuario_legajo": current_user["legajo"]}
-            )
-            if res_new.status_code == 200:
-                caja_data = res_new.json().get("data", {})
-                codigo_caja = caja_data.get("codigo", "N/A")
-                st.toast(f"Caja {codigo_caja} abierta con éxito.")
-                st.rerun()
+            payload = {
+                "path": str(Path(settings.ENTRADA).resolve()),
+                "salida_path": None,
+                "modo_historico": modo_historico,
+                "usuario_id": current_user["id"],
+                "usuario_legajo": current_user["legajo"]
+            }
+            res = requests.post(f"{API_URL}/api/process", json=payload)
+            if res.status_code == 200:
+                data = res.json().get("data", {})
+                organizados = data.get("organizados", [])
+                revision = data.get("revision", [])
+                
+                if organizados or revision:
+                    st.toast(f"Procesados: {len(organizados)} organizados, {len(revision)} a revisión.")
+                else:
+                    st.toast("No se encontraron carpetas nuevas con PDFs.")
             else:
-                st.sidebar.error(res_new.json().get("detail", "Error al abrir la caja."))
-        except Exception as ex:
-            st.sidebar.error(f"Error de conexión: {ex}")
+                st.sidebar.error(f"Error: {res.json().get('detail', 'Error desconocido')}")
+        except Exception as e:
+            st.sidebar.error(f"No se pudo conectar al servidor backend: {e}")
 
 # Split by state
 organizados = [r for r in all_repartos if r["estado"] == "ORGANIZADO"]
@@ -392,8 +268,7 @@ with tab_revision:
             render_reparto_row(
                 reparto, 
                 force_rerun, 
-                active_caja=active_caja, 
-                salida_path=salida_path,
+                salida_path=None,
                 modo_historico=modo_historico,
                 current_user=current_user
             )
@@ -466,8 +341,7 @@ with tab_search:
                         st.markdown(
                             f"<div style='background-color: {matched_guia_info['color']}15; border-left: 4px solid {matched_guia_info['color']}; padding: 8px 12px; border-radius: 4px; margin-bottom: 10px;'>"
                             f"<strong>{matched_guia_info['icon']} Coincidencia de Guía Individual:</strong> <code>{term}</code> &nbsp;|&nbsp; "
-                            f"<strong>Estado:</strong> {matched_guia_info['desc']} &nbsp;|&nbsp; "
-                            f"📦 <strong>Caja Física:</strong> <code>{r.get('caja_codigo') or 'S/C'}</code>"
+                            f"<strong>Estado:</strong> {matched_guia_info['desc']}"
                             f"</div>",
                             unsafe_allow_html=True
                         )
@@ -482,7 +356,6 @@ with tab_search:
                         )
                         st.markdown(
                             f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])} | "
-                            f"📦 **Caja:** `{r.get('caja_codigo') or 'S/C'}` | "
                             f"👤 **Operador:** `{r.get('usuario_legajo') or 'S/A'}`"
                         )
                         if r.get("guias_faltantes"):
@@ -491,7 +364,7 @@ with tab_search:
                             st.markdown(f"✍️ **Guías Sin Firma:** `{r['guias_sin_firma'].replace(',', ', ')}`")
                         if r.get("guias_no_entregadas"):
                             st.markdown(f"🚫 **Guías No Entregadas:** `{r['guias_no_entregadas'].replace(',', ', ')}`")
-                        st.markdown(f"**Ruta:** `{r['ruta_nueva'] or r['ruta_original']}`")
+                        st.markdown(f"**Ruta (Espejo):** `{r.get('ruta_espejo') or r['ruta_nueva'] or r['ruta_original']}`")
                         
                     with col_btn:
                         st.write("")
@@ -549,7 +422,6 @@ with tab_organizados:
                 "Fecha": format_date_display(r["fecha"]),
                 "Sucursal": r["sucursal"],
                 "Nro Reparto": r["nro_reparto"],
-                "Caja": r.get("caja_codigo") or "S/C",
                 "Operador": r.get("usuario_legajo") or "S/A",
                 "Duplicado": "⚠️ Sí" if r.get("es_duplicado") else "No",
                 "Guías Faltantes": (r.get("guias_faltantes") or "").replace(",", ", ") if r.get("guias_faltantes") else "Ninguna",
@@ -557,7 +429,7 @@ with tab_organizados:
                 "No Entregadas": (r.get("guias_no_entregadas") or "").replace(",", ", ") if r.get("guias_no_entregadas") else "Ninguna",
                 "Fecha Procesamiento": r.get("fecha_procesamiento") or "",
                 "Carpeta Original": ruta_ori,
-                "Ruta Destino": ruta_nue
+                "Ruta Consulta (Espejo)": r.get("ruta_espejo") or r["ruta_nueva"]
             })
             
         df = pd.DataFrame(df_data)
@@ -592,7 +464,6 @@ with tab_organizados:
                 "Fecha": st.column_config.TextColumn(width="medium"),
                 "Sucursal": st.column_config.TextColumn(width="small"),
                 "Nro Reparto": st.column_config.TextColumn(width="medium"),
-                "Caja": st.column_config.TextColumn(width="small"),
                 "Operador": st.column_config.TextColumn(width="small"),
                 "Duplicado": st.column_config.TextColumn(width="small"),
                 "Guías Faltantes": st.column_config.TextColumn(width="medium"),
@@ -600,7 +471,7 @@ with tab_organizados:
                 "No Entregadas": st.column_config.TextColumn(width="medium"),
                 "Fecha Procesamiento": st.column_config.TextColumn(width="medium"),
                 "Carpeta Original": st.column_config.TextColumn(width="medium"),
-                "Ruta Destino": st.column_config.TextColumn(width="large"),
+                "Ruta Consulta (Espejo)": st.column_config.TextColumn(width="large"),
             }
         )
         
@@ -631,11 +502,10 @@ with tab_organizados:
                         st.markdown(
                             f"📁 **Reparto Seleccionado:** `{reparto_sel['sucursal'] or '?'}_{reparto_sel['nro_reparto'] or '?'}`{dup_badge_sel} &nbsp;&nbsp;|&nbsp;&nbsp; "
                             f"**Empresa:** {reparto_sel['empresa']} &nbsp;&nbsp;|&nbsp;&nbsp; "
-                            f"**Caja:** {reparto_sel.get('caja_codigo') or 'S/C'} &nbsp;&nbsp;|&nbsp;&nbsp; "
                             f"👤 **Operador:** `{reparto_sel.get('usuario_legajo') or 'S/A'}`",
                             unsafe_allow_html=True
                         )
-                        st.markdown(f"**Ruta Destino Completa:** `{reparto_sel['ruta_nueva']}`")
+                        st.markdown(f"**Ruta Consulta (Espejo):** `{reparto_sel.get('ruta_espejo') or reparto_sel['ruta_nueva']}`")
                         if reparto_sel.get("guias_faltantes"):
                             st.markdown(f"⚠️ **Guías Faltantes:** `{reparto_sel['guias_faltantes'].replace(',', ', ')}`")
                         if reparto_sel.get("guias_sin_firma"):
@@ -735,7 +605,6 @@ if is_admin:
                                 st.markdown(f"Rol: `{u['rol']}` &nbsp;|&nbsp; {estado_icon}")
                             with c_u2:
                                 st.markdown(f"📁 Repartos: **{u.get('total_repartos', 0)}**")
-                                st.markdown(f"📦 Cajas: **{u.get('total_cajas', 0)}**")
                             with c_u3:
                                 with st.popover("⚙️ Acciones"):
                                     st.markdown(f"**Opciones para {u['legajo']}**")

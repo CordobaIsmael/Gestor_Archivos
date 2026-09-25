@@ -23,12 +23,6 @@ def init_db():
     # Try adding columns to existing repartos table (schema migrations)
     try:
         with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE repartos ADD COLUMN caja_id INTEGER"))
-            print("Added caja_id column to repartos table (migration).")
-    except Exception:
-        pass
-    try:
-        with engine.begin() as conn:
             conn.execute(text("ALTER TABLE repartos ADD COLUMN guias_encontradas VARCHAR(2000)"))
             print("Added guias_encontradas column (migration).")
     except Exception:
@@ -67,18 +61,6 @@ def init_db():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE repartos ADD COLUMN usuario_legajo VARCHAR(50)"))
             print("Added usuario_legajo column to repartos (migration).")
-    except Exception:
-        pass
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE cajas ADD COLUMN usuario_id INTEGER"))
-            print("Added usuario_id column to cajas (migration).")
-    except Exception:
-        pass
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE cajas ADD COLUMN usuario_legajo VARCHAR(50)"))
-            print("Added usuario_legajo column to cajas (migration).")
     except Exception:
         pass
     try:

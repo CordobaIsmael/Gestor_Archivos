@@ -175,7 +175,7 @@ def render_stats(organized_count: int, revision_count: int):
         unsafe_allow_html=True
     )
 
-def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, salida_path=None, modo_historico=False, current_user=None):
+def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, modo_historico=False, current_user=None):
     """Renders an interactive manual editor and PDF viewer inside a collapsible container for Revision items."""
     folder_path = Path(reparto['ruta_nueva'])
     folder_name = folder_path.name
@@ -223,8 +223,6 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                 except Exception as ex:
                     st.error(f"Error de conexión: {ex}")
 
-            if active_caja is None and not modo_historico:
-                st.warning("⚠️ Debes tener una caja activa abierta para guardar y organizar este reparto.")
             empresa_options = ["INTERPROVINCIAL", "OTAPEYA"]
             default_empresa_idx = 0
             if reparto["empresa"] in empresa_options:
@@ -253,9 +251,9 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
             )
             
             sucursal = st.text_input(
-                "Sucursal (BB, CF, NQ, MP, RO, OL, TA, AR, AZ, CO, RE)", 
+                "Sucursal (MP, TA, CO, OL, VR, RC, CH, BB, CF, NQ, RO, AZ)", 
                 value=reparto["sucursal"] if reparto["sucursal"] else "",
-                placeholder="Ej. BB",
+                placeholder="Ej. MP, TA, VR, RC, CH...",
                 key=f"suc_{reparto['id']}"
             )
             
@@ -350,7 +348,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, active_caja=None, sal
                 help="Tilda esta opción si ya existe otro reparto con el mismo número pero deseas guardarlo igualmente."
             )
             
-            if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True, disabled=(active_caja is None and not modo_historico)):
+            if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True):
                 suc_clean = sucursal.strip().upper()
                 if not sucursal.strip() or not nro_reparto.strip():
                     st.error("Por favor completa los campos de Sucursal y Número de Reparto.")

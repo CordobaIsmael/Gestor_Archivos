@@ -11,9 +11,15 @@ class Settings(BaseSettings):
     SALIDA: Path = BASE_DIR / "Salida"
     REVISION: Path = BASE_DIR / "Revision"
 
+    # Company specific target paths (Original master storage)
+    DIR_INTERPROVINCIAL: Path = Path(r"A:\AD_INTERPROVINCIAL")
+    DIR_OTAPEYA: Path = Path(r"A:\AD_OTAPEYA")
+
+    # Company specific mirror paths (Read-only query storage)
+    MIRROR_DIR_INTERPROVINCIAL: Path = Path(r"Q:\AD_INTERPROVINCIAL")
+    MIRROR_DIR_OTAPEYA: Path = Path(r"O:\AD_OTAPEYA")
+
     # Database settings
-    # Defaulting to local SQLite file for development.
-    # Production will set DATABASE_URL to a PostgreSQL connection string (e.g. postgresql://user:password@localhost:5432/db_name)
     DATABASE_URL: str = f"sqlite:///{BASE_DIR}/gestor_archivos.db"
 
     # API configuration
@@ -23,17 +29,18 @@ class Settings(BaseSettings):
 
     # Official valid sucursales
     VALID_SUCURSALES: dict = {
+        "MP": "Mar del Plata",
+        "TA": "Tres Arroyos",
+        "CO": "Córdoba",
+        "OL": "Olavarría",
+        "VR": "Villa Regina",
+        "RC": "Río Colorado",
+        "CH": "Choele Choel",
         "BB": "Bahía Blanca",
         "CF": "Capital Federal",
         "NQ": "Neuquén",
-        "MP": "Mar del Plata",
         "RO": "Rosario",
-        "OL": "Olavarría",
-        "TA": "Tandil",
-        "AR": "Tres Arroyos",
-        "AZ": "Azul",
-        "CO": "Córdoba",
-        "RE": "Regina"
+        "AZ": "Azul"
     }
 
     model_config = SettingsConfigDict(
@@ -45,8 +52,18 @@ class Settings(BaseSettings):
     def create_directories(self):
         """Creates the necessary directories if they do not exist."""
         for path in [self.ENTRADA, self.SALIDA, self.REVISION]:
-            path.mkdir(parents=True, exist_ok=True)
-            print(f"Directory verified/created: {path}")
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                print(f"Directory verified/created: {path}")
+            except Exception as e:
+                print(f"Could not create directory {path}: {e}")
+
+        for path in [self.DIR_INTERPROVINCIAL, self.DIR_OTAPEYA]:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                print(f"Directory verified/created: {path}")
+            except Exception as e:
+                print(f"Note: Drive/directory {path} not directly accessible yet: {e}")
 
 # Instantiate global settings
 settings = Settings()
@@ -58,7 +75,7 @@ import json
 CONFIG_FILE = settings.BASE_DIR / "user_config.json"
 
 def get_persisted_paths() -> dict:
-    """Loads saved input/output directory paths from user_config.json."""
+    """Loads saved input directory paths from user_config.json."""
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -69,7 +86,7 @@ def get_persisted_paths() -> dict:
             print(f"Error reading user_config.json: {e}")
     return {
         "scan_path": str(Path(settings.ENTRADA).resolve()),
-        "salida_path": str(Path(settings.SALIDA).resolve())
+        "salida_path": ""
     }
 
 def save_persisted_paths(scan_path: str = None, salida_path: str = None):
@@ -77,8 +94,8 @@ def save_persisted_paths(scan_path: str = None, salida_path: str = None):
     data = get_persisted_paths()
     if scan_path is not None and scan_path.strip():
         data["scan_path"] = str(Path(scan_path).resolve())
-    if salida_path is not None and salida_path.strip():
-        data["salida_path"] = str(Path(salida_path).resolve())
+    if salida_path is not None:
+        data["salida_path"] = str(Path(salida_path).resolve()) if salida_path.strip() else ""
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)

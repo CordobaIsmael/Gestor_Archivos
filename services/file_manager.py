@@ -2,27 +2,30 @@ import shutil
 from pathlib import Path
 import os
 from datetime import date
+from config.settings import settings
 
 SUCURSAL_NAMES = {
-    "BB": "BAHIA BLANCA",
-    "NQ": "NEUQUEN",
-    "NQN": "NEUQUEN",
-    "CF": "CAPITAL FEDERAL",
-    "MP": "MAR DEL PLATA",
-    "MDP": "MAR DEL PLATA",
-    "RO": "ROSARIO",
-    "ROS": "ROSARIO",
-    "OL": "OLAVARRIA",
-    "OLA": "OLAVARRIA",
-    "TA": "TANDIL",
-    "TAN": "TANDIL",
-    "AR": "TRES ARROYOS",
-    "AZ": "AZUL",
+    "MP": "MAR_DEL_PLATA",
+    "MDP": "MAR_DEL_PLATA",
+    "TA": "TRES_ARROYOS",
+    "AR": "TRES_ARROYOS",
     "CO": "CORDOBA",
     "COR": "CORDOBA",
     "CBA": "CORDOBA",
-    "RE": "VILLA REGINA",
-    "REG": "VILLA REGINA"
+    "OL": "OLAVARRIA",
+    "OLA": "OLAVARRIA",
+    "VR": "VILLA_REGINA",
+    "RE": "VILLA_REGINA",
+    "REG": "VILLA_REGINA",
+    "RC": "RIO_COLORADO",
+    "CH": "CHOELE_CHOEL",
+    "BB": "BAHIA_BLANCA",
+    "NQ": "NEUQUEN",
+    "NQN": "NEUQUEN",
+    "CF": "CAPITAL_FEDERAL",
+    "RO": "ROSARIO",
+    "ROS": "ROSARIO",
+    "AZ": "AZUL"
 }
 
 MONTH_NAMES = {
@@ -40,17 +43,29 @@ MONTH_NAMES = {
     12: "DICIEMBRE"
 }
 
-def get_organized_path(base_salida: Path, empresa: str, fecha: date, sucursal: str, nro_reparto: str) -> Path:
-    """
+def get_organized_path(empresa: str, fecha: date, sucursal: str, nro_reparto: str, base_salida: Path = None) -> Path:
+    r"""
     Constructs the organized hierarchical path for a reparto:
-    base_salida / Empresa / Year / Sucursal Name / Month / Day / Sucursal_NroReparto
+    - INTERPROVINCIAL -> A:\AD_INTERPROVINCIAL / Year / Sucursal_Name / Month / Day / Sucursal_NroReparto
+    - OTAPEYA -> A:\AD_OTAPEYA / Year / Sucursal_Name / Month / Day / Sucursal_NroReparto
     """
     empresa_str = empresa.upper().strip()
+    
+    if base_salida is not None:
+        target_base = base_salida
+    elif empresa_str == "INTERPROVINCIAL":
+        target_base = settings.DIR_INTERPROVINCIAL
+    elif empresa_str == "OTAPEYA":
+        target_base = settings.DIR_OTAPEYA
+    else:
+        target_base = Path(settings.SALIDA) / empresa_str
+        
     year_str = str(fecha.year)
     
-    # Map sucursal code to full name
+    # Map sucursal code to full name with underscores
     suc_code = sucursal.upper().strip()
-    sucursal_name = SUCURSAL_NAMES.get(suc_code, suc_code) # fallback to code if not in mapping
+    raw_suc_name = SUCURSAL_NAMES.get(suc_code, suc_code) # fallback to code if not in mapping
+    sucursal_name = raw_suc_name.replace(" ", "_")
     
     # Map month number to name in Spanish
     month_name = MONTH_NAMES.get(fecha.month, "DESCONOCIDO")
@@ -59,7 +74,7 @@ def get_organized_path(base_salida: Path, empresa: str, fecha: date, sucursal: s
     
     folder_name = f"{suc_code}_{nro_reparto}"
     
-    return base_salida / empresa_str / year_str / sucursal_name / month_name / day_str / folder_name
+    return target_base / year_str / sucursal_name / month_name / day_str / folder_name
 
 
 def generate_safe_dest_path(dest_path: Path) -> Path:
@@ -98,3 +113,29 @@ def move_directory(src_dir: Path, dest_dir: Path) -> Path:
     # Move directory
     shutil.move(str(src_dir), str(safe_dest))
     return safe_dest
+
+
+def get_mirror_path(path_str: str) -> str:
+    r"""
+    Translates a physical storage path (on drive A:) to the corresponding mirror query path:
+    - A:\AD_INTERPROVINCIAL\... -> Q:\AD_INTERPROVINCIAL\...
+    - A:\AD_OTAPEYA\...         -> O:\AD_OTAPEYA\...
+    """
+    if not path_str:
+        return path_str
+        
+    p_upper = path_str.upper().strip()
+    
+    # Interprovincial mirror in Q:
+    if p_upper.startswith(r"A:\AD_INTERPROVINCIAL"):
+        return "Q:" + path_str[2:]
+    if p_upper.startswith(r"A:/AD_INTERPROVINCIAL"):
+        return "Q:" + path_str[2:]
+        
+    # Otapeya mirror in O:
+    if p_upper.startswith(r"A:\AD_OTAPEYA"):
+        return "O:" + path_str[2:]
+    if p_upper.startswith(r"A:/AD_OTAPEYA"):
+        return "O:" + path_str[2:]
+        
+    return path_str
