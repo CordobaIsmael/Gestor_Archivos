@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import fitz  # PyMuPDF
 from config.settings import settings
+from services.file_manager import get_network_unc_path
 
 API_URL = settings.API_URL
 
@@ -222,6 +223,10 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                         st.error(res_open.json().get("detail", "Error al abrir la carpeta."))
                 except Exception as ex:
                     st.error(f"Error de conexión: {ex}")
+
+            unc_rev_p = get_network_unc_path(reparto.get("ruta_nueva") or reparto.get("ruta_original") or "")
+            if unc_rev_p and unc_rev_p != (reparto.get("ruta_nueva") or reparto.get("ruta_original")):
+                st.caption(f"🌐 **Ruta de Red:** `{unc_rev_p}`")
 
             empresa_options = ["INTERPROVINCIAL", "OTAPEYA"]
             default_empresa_idx = 0

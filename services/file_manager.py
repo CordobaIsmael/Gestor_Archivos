@@ -139,3 +139,30 @@ def get_mirror_path(path_str: str) -> str:
         return "O:" + path_str[2:]
         
     return path_str
+
+
+def get_network_unc_path(path_str: str, server_ip: str = None) -> str:
+    r"""
+    Converts a local or mirror drive path into a standard Windows SMB network share path (UNC):
+    - A:\AD_INTERPROVINCIAL\... or Q:\AD_INTERPROVINCIAL\... -> \\SERVER_IP\AD_INTERPROVINCIAL\...
+    - A:\AD_OTAPEYA\... or O:\AD_OTAPEYA\... -> \\SERVER_IP\AD_OTAPEYA\...
+    """
+    if not path_str:
+        return path_str
+        
+    host = server_ip or settings.SERVER_IP or "localhost"
+    p_norm = path_str.replace("/", "\\")
+    p_upper = p_norm.upper()
+    
+    for prefix in [r"A:\AD_INTERPROVINCIAL", r"Q:\AD_INTERPROVINCIAL"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):].lstrip("\\")
+            return f"\\\\{host}\\AD_INTERPROVINCIAL" + (f"\\{rel}" if rel else "")
+            
+    for prefix in [r"A:\AD_OTAPEYA", r"O:\AD_OTAPEYA"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):].lstrip("\\")
+            return f"\\\\{host}\\AD_OTAPEYA" + (f"\\{rel}" if rel else "")
+            
+    return p_norm
+

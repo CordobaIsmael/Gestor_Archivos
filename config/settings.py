@@ -1,6 +1,21 @@
 import os
+import socket
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+def get_local_ip() -> str:
+    """Detects the LAN IP of the current host machine for multi-PC network access."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "127.0.0.1"
 
 class Settings(BaseSettings):
     # Base workspace directory (defaulting to parent of config/ folder)
@@ -22,10 +37,11 @@ class Settings(BaseSettings):
     # Database settings
     DATABASE_URL: str = f"sqlite:///{BASE_DIR}/gestor_archivos.db"
 
-    # API configuration
-    API_HOST: str = "127.0.0.1"
+    # Server & API configuration for LAN access
+    SERVER_IP: str = get_local_ip()
+    API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-    API_URL: str = "http://127.0.0.1:8000"
+    API_URL: str = f"http://{get_local_ip()}:8000"
 
     # Official valid sucursales
     VALID_SUCURSALES: dict = {

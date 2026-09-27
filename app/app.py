@@ -15,6 +15,7 @@ if str(app_dir) not in sys.path:
     sys.path.insert(0, str(app_dir))
 
 from config.settings import settings, get_persisted_paths, save_persisted_paths
+from services.file_manager import get_network_unc_path
 
 def select_directory_dialog(initial_dir: str) -> str:
     """Opens a native directory selector dialog in a separate subprocess to ensure thread safety."""
@@ -364,7 +365,11 @@ with tab_search:
                             st.markdown(f"✍️ **Guías Sin Firma:** `{r['guias_sin_firma'].replace(',', ', ')}`")
                         if r.get("guias_no_entregadas"):
                             st.markdown(f"🚫 **Guías No Entregadas:** `{r['guias_no_entregadas'].replace(',', ', ')}`")
-                        st.markdown(f"**Ruta (Espejo):** `{r.get('ruta_espejo') or r['ruta_nueva'] or r['ruta_original']}`")
+                        ruta_espejo_disp = r.get('ruta_espejo') or r['ruta_nueva'] or r['ruta_original']
+                        st.markdown(f"**Ruta (Espejo):** `{ruta_espejo_disp}`")
+                        unc_disp = get_network_unc_path(ruta_espejo_disp)
+                        if unc_disp and unc_disp != ruta_espejo_disp:
+                            st.caption(f"🌐 **Ruta de Red (para otras PCs):** `{unc_disp}`")
                         
                     with col_btn:
                         st.write("")
@@ -512,6 +517,11 @@ with tab_organizados:
                             st.markdown(f"✍️ **Guías Sin Firma:** `{reparto_sel['guias_sin_firma'].replace(',', ', ')}`")
                         if reparto_sel.get("guias_no_entregadas"):
                             st.markdown(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** `{reparto_sel['guias_no_entregadas'].replace(',', ', ')}`")
+                        ruta_sel_disp = reparto_sel.get('ruta_espejo') or reparto_sel['ruta_nueva'] or reparto_sel['ruta_original']
+                        st.markdown(f"**Ruta en Disco de Consulta (Espejo):** `{ruta_sel_disp}`")
+                        unc_sel_disp = get_network_unc_path(ruta_sel_disp)
+                        if unc_sel_disp and unc_sel_disp != ruta_sel_disp:
+                            st.caption(f"🌐 **Ruta de Red (para otras PCs):** `{unc_sel_disp}`")
                     with col_action:
                         st.write("")  # Vertical alignment
                         if st.button("📂 Abrir Carpeta", key="btn_open_organized", use_container_width=True):
