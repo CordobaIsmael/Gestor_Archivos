@@ -279,11 +279,10 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 faltantes_list = [g.strip() for g in reparto["guias_faltantes"].split(",") if g.strip()]
                 
                 opciones_resolucion = [
-                    "Guía no entregada (Reclamar a chofer)",
-                    "Guía extraviada",
-                    "Entregada sin remito físico",
-                    "Reimpresión posterior",
-                    "Otro motivo"
+                    "Guia Escaneada",
+                    "Vuelta a Deposito",
+                    "En REMISION",
+                    "Otro"
                 ]
                 
                 for g in faltantes_list:

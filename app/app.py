@@ -63,6 +63,19 @@ API_URL = settings.API_URL
 
 # ----------------- LOGIN SCREEN -----------------
 if "user" not in st.session_state or st.session_state["user"] is None:
+    # Intentar restaurar sesión persistente (permite que quede logueado hasta poner Salir)
+    persisted_legajo = st.query_params.get("session_user")
+    if persisted_legajo:
+        try:
+            r_val = requests.get(f"{API_URL}/api/auth/user-by-legajo/{persisted_legajo}")
+            if r_val.status_code == 200:
+                st.session_state["user"] = r_val.json()["user"]
+            else:
+                st.query_params.clear()
+        except Exception:
+            pass
+
+if "user" not in st.session_state or st.session_state["user"] is None:
     st.markdown("<br>", unsafe_allow_html=True)
     _, col_center, _ = st.columns([1, 2, 1])
     with col_center:
@@ -85,7 +98,9 @@ if "user" not in st.session_state or st.session_state["user"] is None:
                                 json={"legajo": legajo_input.strip(), "password": password_input.strip()}
                             )
                             if res_login.status_code == 200:
-                                st.session_state["user"] = res_login.json()["user"]
+                                user_logged = res_login.json()["user"]
+                                st.session_state["user"] = user_logged
+                                st.query_params["session_user"] = user_logged["legajo"]
                                 st.rerun()
                             else:
                                 st.error(res_login.json().get("detail", "Credenciales incorrectas."))
@@ -95,6 +110,8 @@ if "user" not in st.session_state or st.session_state["user"] is None:
 
 # ----------------- LOGGED IN USER CONTEXT -----------------
 current_user = st.session_state["user"]
+if st.query_params.get("session_user") != current_user["legajo"]:
+    st.query_params["session_user"] = current_user["legajo"]
 
 def force_rerun():
     """Forces streamlit to refresh the dashboard."""
@@ -120,6 +137,7 @@ col_logout, col_pwd = st.sidebar.columns([1, 1])
 with col_logout:
     if st.button("🚪 Salir", use_container_width=True):
         st.session_state["user"] = None
+        st.query_params.clear()
         st.rerun()
 with col_pwd:
     with st.popover("🔑 Clave"):
@@ -179,13 +197,13 @@ if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_widt
             res = requests.post(f"{API_URL}/api/process", json=payload)
             if res.status_code == 200:
                 data = res.json().get("data", {})
-                organizados = data.get("organizados", [])
-                revision = data.get("revision", [])
-                
-                if organizados or revision:
-                    st.toast(f"Procesados: {len(organizados)} organizados, {len(revision)} a revisión.")
-                else:
-                    st.toast("No se encontraron carpetas nuevas con PDFs.")
+                organizados_res = data.get("organizados", [])
+                revision_res = data.get("revision", [])
+                st.session_state["process_feedback"] = {
+                    "organizados": len(organizados_res),
+                    "revision": len(revision_res)
+                }
+                st.rerun()
             else:
                 st.sidebar.error(f"Error: {res.json().get('detail', 'Error desconocido')}")
         except Exception as e:
@@ -197,6 +215,19 @@ en_revision = [r for r in all_repartos if r["estado"] == "EN_REVISION"]
 
 # Display stats cards
 render_stats(len(organizados), len(en_revision))
+
+# Feedback posterior al procesamiento
+if st.session_state.get("process_feedback"):
+    fb = st.session_state.pop("process_feedback")
+    cant_org = fb.get("organizados", 0)
+    cant_rev = fb.get("revision", 0)
+    if cant_org > 0 or cant_rev > 0:
+        if cant_rev > 0:
+            st.warning(f"⚠️ **Procesamiento completado:** Se organizaron **{cant_org}** repartos y **{cant_rev}** fueron enviados a **Revisión**.")
+        else:
+            st.success(f"✅ **Procesamiento completado con éxito:** Se organizaron **{cant_org}** repartos.")
+    else:
+        st.info("ℹ️ No se encontraron nuevas carpetas con archivos PDF para procesar en la carpeta de Entrada.")
 
 # Tabs layout
 is_admin = (current_user.get("rol") == "ADMIN")

@@ -57,6 +57,13 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         "user": user.to_dict()
     }
 
+@app.get("/api/auth/user-by-legajo/{legajo}", summary="Get active user by legajo")
+def get_user_by_legajo(legajo: str, db: Session = Depends(get_db)):
+    user = db.query(Usuario).filter(Usuario.legajo == legajo.strip(), Usuario.activo == True).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado o inactivo.")
+    return {"status": "success", "user": user.to_dict()}
+
 @app.get("/api/auth/users", summary="List all operators/users (Admin only)")
 def list_users(db: Session = Depends(get_db)):
     users = db.query(Usuario).order_by(Usuario.legajo.asc()).all()
