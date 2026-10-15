@@ -5,7 +5,7 @@ import base64
 from datetime import date, datetime
 from pathlib import Path
 import fitz  # PyMuPDF
-from config.settings import settings
+from config.settings import settings, validate_nro_reparto_digits, get_min_digits_for_sucursal
 from services.file_manager import get_network_unc_path
 
 API_URL = settings.API_URL
@@ -498,17 +498,21 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 key=f"fecha_{reparto['id']}"
             )
             
+            suc_clean_cur = (reparto.get("sucursal") or "").upper().strip()
+            min_dig_hint = get_min_digits_for_sucursal(suc_clean_cur) if suc_clean_cur else 3
+            valid_suc_list = ", ".join(settings.VALID_SUCURSALES.keys())
+
             sucursal = st.text_input(
-                "Sucursal (MP, TA, CO, OL, VR, RC, CH, BB, CF, NQ, RO, AZ)", 
+                f"Sucursal ({valid_suc_list})", 
                 value=reparto["sucursal"] if reparto["sucursal"] else "",
-                placeholder="Ej. MP, TA, VR, RC, CH...",
+                placeholder="Ej. BB, CF, NQ, TD, VR, OL, GR, TA...",
                 key=f"suc_{reparto['id']}"
             )
             
             nro_reparto = st.text_input(
-                "Número de Reparto", 
+                f"Número de Reparto (Mínimo {min_dig_hint} dígitos para {suc_clean_cur or 'esta sucursal'})", 
                 value=reparto["nro_reparto"] if reparto["nro_reparto"] else "",
-                placeholder="Ej. 138232",
+                placeholder=f"Ej. {'138232' if min_dig_hint >= 6 else '12345'}",
                 key=f"num_{reparto['id']}"
             )
             
@@ -597,11 +601,17 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
             
             if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True):
                 suc_clean = sucursal.strip().upper()
+                is_valid_dig, act_dig, req_dig = validate_nro_reparto_digits(suc_clean, nro_reparto.strip())
                 if not sucursal.strip() or not nro_reparto.strip():
                     st.error("Por favor completa los campos de Sucursal y Número de Reparto.")
                 elif suc_clean not in settings.VALID_SUCURSALES:
                     valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
                     st.error(f"Por favor ingresa una sucursal válida. Debe ser una de: {valid_list}")
+                elif not is_valid_dig:
+                    st.error(
+                        f"El número de reparto para la sucursal {suc_clean} es incompleto o inválido. "
+                        f"Requiere como mínimo {req_dig} dígitos numéricos (ingresaste: {act_dig})."
+                    )
                 else:
                     payload = {
                         "empresa": empresa,

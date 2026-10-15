@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Dict, Any
 import os
 
-from config.settings import settings
+from config.settings import settings, validate_nro_reparto_digits
 from models.database import Reparto
 from services.pdf_reader import PDFReader
 from services.file_manager import move_directory, get_organized_path
@@ -177,12 +177,18 @@ def process_incoming_folders(
             metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
         )
 
-        # If a complete Hoja de Reparto was found with all metadata, valid sucursal, no missing guias, no unsigned guias, AND NOT a duplicate
+        # Check if nro_reparto has the minimum required digits for this sucursal
+        suc_ext = metadata_found.get("sucursal") if metadata_found else None
+        num_ext = metadata_found.get("nro_reparto") if metadata_found else None
+        is_valid_nro_digits, act_digits, req_min_digits = validate_nro_reparto_digits(suc_ext, num_ext)
+
+        # If a complete Hoja de Reparto was found with all metadata, valid sucursal, valid digits, no missing guias, no unsigned guias, AND NOT a duplicate
         if (metadata_found and 
             metadata_found["empresa"] and 
             metadata_found["fecha"] and 
             is_valid_sucursal and 
             metadata_found["nro_reparto"] and
+            is_valid_nro_digits and
             not has_missing_guias and
             not has_unsigned_guias and
             not is_duplicate):
@@ -239,15 +245,17 @@ def process_incoming_folders(
                 send_to_revision(folder, db, results, metadata_found, original_path_str, guias_encontradas_str, guias_faltantes_str, guias_sin_firma_str, guias_no_entregadas_str, usuario_id, usuario_legajo, motivo_revision=f"Error al mover carpeta: {e}")
                 
         else:
-            # Metadata missing, invalid sucursal, missing guias, unsigned guias or duplicate -> Move to REVISION
+            # Metadata missing, invalid sucursal, invalid digits, missing guias, unsigned guias or duplicate -> Move to REVISION
             motivo = duplicate_reason
             if not motivo:
-                if has_missing_guias:
+                if not is_valid_sucursal:
+                    motivo = "Sucursal inválida o no identificada"
+                elif not is_valid_nro_digits:
+                    motivo = f"Número de reparto incompleto ({num_ext}): sucursal {suc_ext} requiere como mínimo {req_min_digits} dígitos (se detectaron {act_digits})"
+                elif has_missing_guias:
                     motivo = f"Guías faltantes ({guias_faltantes_str})"
                 elif has_unsigned_guias:
                     motivo = f"Guías sin firma ({guias_sin_firma_str})"
-                elif not is_valid_sucursal:
-                    motivo = "Sucursal inválida o no identificada"
                 else:
                     motivo = "Metadatos incompletos"
                     
@@ -353,6 +361,14 @@ def resolve_revision_folder(
         raise ValueError(f"La sucursal '{sucursal}' no es válida. Debe ser una de: {valid_list}")
         
     num_clean = nro_reparto.strip()
+    
+    # Check minimum required digits for this sucursal
+    is_valid_dig, act_dig, req_min = validate_nro_reparto_digits(sucursal_clean, num_clean)
+    if not is_valid_dig:
+        raise ValueError(
+            f"El número de reparto '{num_clean}' es inválido para la sucursal {sucursal_clean}. "
+            f"Requiere como mínimo {req_min} dígitos numéricos (se ingresaron: {act_dig})."
+        )
     
     # Check if this reparto code already exists in organized repartos
     existing_dup = db.query(Reparto).filter(

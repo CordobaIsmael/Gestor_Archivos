@@ -38,6 +38,12 @@ class PDFReader:
         # Fixes for CH (Choele Choel)
         if s in ["CH1", "CH0"]:
             return "CH"
+        # Fixes for TD (Tandil)
+        if s in ["TAN", "TD1", "TD0"]:
+            return "TD"
+        # Fixes for GR (General Roca)
+        if s in ["ROC", "GRO", "GR1", "GR0"]:
+            return "GR"
         return s
 
     @classmethod
@@ -155,9 +161,9 @@ class PDFReader:
             sucursal_candidates = [
                 "MP", "MDP", "TA", "AR", "CO", "COR", "CBA", "OL", "OLA",
                 "VR", "RE", "REG", "RC", "CH", "BB", "NQ", "NQN", "CF", 
-                "RO", "ROS", "AZ"
+                "RO", "ROS", "AZ", "TD", "TAN", "GR", "ROC"
             ]
-            suc_regex = r"\b(" + "|".join(sucursal_candidates) + r")\s+(\d{4,8})\b"
+            suc_regex = r"\b(" + "|".join(sucursal_candidates) + r")\s+(\d{3,8})\b"
             match_fallback = re.search(suc_regex, text, re.IGNORECASE)
             if match_fallback:
                 raw_sucursal = match_fallback.group(1)

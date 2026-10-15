@@ -56,7 +56,9 @@ class Settings(BaseSettings):
         "CF": "Capital Federal",
         "NQ": "Neuquén",
         "RO": "Rosario",
-        "AZ": "Azul"
+        "AZ": "Azul",
+        "TD": "Tandil",
+        "GR": "General Roca"
     }
 
     model_config = SettingsConfigDict(
@@ -85,6 +87,38 @@ class Settings(BaseSettings):
 settings = Settings()
 # Ensure directories are created on import
 settings.create_directories()
+
+# Minimum digits required for nro_reparto per sucursal
+MIN_DIGITS_BY_SUCURSAL: dict = {
+    "BB": 6,
+    "CF": 5,
+    "NQ": 5,
+    "TD": 4,
+    "VR": 4,
+    "OL": 4,
+    "GR": 4,
+    "TA": 4,
+}
+DEFAULT_MIN_DIGITS: int = 3
+
+def get_min_digits_for_sucursal(sucursal: str) -> int:
+    """Returns the minimum number of digits required for a sucursal's nro_reparto."""
+    if not sucursal:
+        return DEFAULT_MIN_DIGITS
+    suc_code = str(sucursal).upper().strip()
+    return MIN_DIGITS_BY_SUCURSAL.get(suc_code, DEFAULT_MIN_DIGITS)
+
+def validate_nro_reparto_digits(sucursal: str, nro_reparto: str) -> tuple:
+    """
+    Validates that nro_reparto contains at least the required minimum numeric digits for the given sucursal.
+    Returns: (is_valid: bool, actual_digits: int, required_min_digits: int)
+    """
+    req_min = get_min_digits_for_sucursal(sucursal)
+    if not nro_reparto:
+        return False, 0, req_min
+    import re
+    digits = re.sub(r"\D", "", str(nro_reparto))
+    return len(digits) >= req_min, len(digits), req_min
 
 # Path persistence utilities
 import json

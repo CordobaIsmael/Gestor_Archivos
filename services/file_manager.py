@@ -25,7 +25,11 @@ SUCURSAL_NAMES = {
     "CF": "CAPITAL_FEDERAL",
     "RO": "ROSARIO",
     "ROS": "ROSARIO",
-    "AZ": "AZUL"
+    "AZ": "AZUL",
+    "TD": "TANDIL",
+    "TAN": "TANDIL",
+    "GR": "GENERAL_ROCA",
+    "ROC": "GENERAL_ROCA"
 }
 
 MONTH_NAMES = {
