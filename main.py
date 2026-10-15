@@ -253,6 +253,23 @@ def resolve_reparto(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/repartos/{reparto_id}/return-to-revision", summary="Return an organized reparto back to REVISION")
+def return_to_revision_endpoint(reparto_id: int, db: Session = Depends(get_db)):
+    try:
+        from core.organizer import return_reparto_to_revision
+        updated_reparto = return_reparto_to_revision(db=db, reparto_id=reparto_id)
+        return {
+            "status": "success",
+            "message": f"Reparto #{reparto_id} devuelto a Revisión exitosamente.",
+            "data": updated_reparto
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al devolver a revisión: {str(e)}")
+
 @app.post("/api/repartos/{reparto_id}/open", summary="Open folder in File Explorer")
 def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
     try:

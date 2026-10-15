@@ -558,3 +558,50 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
             print(f"Renamed Hoja de Reparto: {hoja_pdf_path.name} -> {new_hoja_path.name}")
     except Exception as e:
         print(f"Error renaming Hoja de Reparto {hoja_pdf_path.name}: {e}")
+
+def return_reparto_to_revision(db: Session, reparto_id: int) -> dict:
+    """
+    Returns an already ORGANIZADO reparto back to REVISION.
+    Moves the physical folder from Salida back to Revision,
+    and updates the database status to EN_REVISION so it can be edited and re-organized.
+    """
+    reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
+    if not reparto:
+        raise ValueError(f"No se encontró el reparto con ID {reparto_id}")
+        
+    src_path = Path(reparto.ruta_nueva)
+    if not src_path.exists():
+        if reparto.ruta_original and Path(reparto.ruta_original).exists():
+            src_path = Path(reparto.ruta_original)
+        else:
+            raise FileNotFoundError(f"No se encontró la carpeta física en el disco: {reparto.ruta_nueva}")
+
+    # Destination in Revision folder
+    folder_base_name = f"{reparto.sucursal or 'REV'}_{reparto.nro_reparto or reparto.id}"
+    dest_path = Path(settings.REVISION) / folder_base_name
+    
+    # Safely move directory
+    final_dest = move_directory(src_path, dest_path)
+    
+    # Try cleaning up empty parent folders in Salida
+    try:
+        curr = src_path.parent
+        for _ in range(5):
+            if curr.exists() and not any(curr.iterdir()):
+                curr.rmdir()
+                curr = curr.parent
+            else:
+                break
+    except Exception as cleanup_err:
+        print(f"Warning cleaning empty parent folders: {cleanup_err}")
+
+    # Update DB record
+    reparto.estado = "EN_REVISION"
+    reparto.ruta_nueva = str(final_dest.resolve())
+    reparto.motivo_revision = "Devuelto manualmente a revisión para corrección de datos"
+    
+    db.commit()
+    db.refresh(reparto)
+    
+    print(f"Reparto #{reparto_id} returned to revision: moved to {final_dest}")
+    return reparto.to_dict()
