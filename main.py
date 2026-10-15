@@ -254,10 +254,10 @@ def resolve_reparto(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/repartos/{reparto_id}/return-to-revision", summary="Return an organized reparto back to REVISION")
-def return_to_revision_endpoint(reparto_id: int, db: Session = Depends(get_db)):
+def return_to_revision_endpoint(reparto_id: int, usuario_id: Optional[int] = None, db: Session = Depends(get_db)):
     try:
         from core.organizer import return_reparto_to_revision
-        updated_reparto = return_reparto_to_revision(db=db, reparto_id=reparto_id)
+        updated_reparto = return_reparto_to_revision(db=db, reparto_id=reparto_id, usuario_id=usuario_id)
         return {
             "status": "success",
             "message": f"Reparto #{reparto_id} devuelto a Revisión exitosamente.",

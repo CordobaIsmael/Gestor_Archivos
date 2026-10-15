@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import os
 
 from config.settings import settings, validate_nro_reparto_digits
-from models.database import Reparto
+from models.database import Reparto, Usuario
 from services.pdf_reader import PDFReader
 from services.file_manager import move_directory, get_organized_path
 
@@ -354,6 +354,14 @@ def resolve_revision_folder(
         
     if reparto.estado != "EN_REVISION":
         raise ValueError(f"Reparto with ID {reparto_id} is not in REVISION status.")
+
+    # Restrict editing returned repartos strictly to administrators
+    if reparto.motivo_revision and "Devuelto" in reparto.motivo_revision:
+        if not usuario_id:
+            raise ValueError("ACCESO DENEGADO: Solo los Administradores tienen autorización para editar y organizar repartos devueltos a revisión.")
+        user = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not user or user.rol != "ADMIN":
+            raise ValueError("ACCESO DENEGADO: Solo los Administradores tienen autorización para editar y organizar repartos devueltos a revisión.")
         
     sucursal_clean = sucursal.strip().upper()
     if sucursal_clean not in settings.VALID_SUCURSALES:
@@ -575,12 +583,18 @@ def rename_organized_files(organized_dir: Path, sucursal: str, nro_reparto: str)
     except Exception as e:
         print(f"Error renaming Hoja de Reparto {hoja_pdf_path.name}: {e}")
 
-def return_reparto_to_revision(db: Session, reparto_id: int) -> dict:
+def return_reparto_to_revision(db: Session, reparto_id: int, usuario_id: int = None) -> dict:
     """
     Returns an already ORGANIZADO reparto back to REVISION.
     Moves the physical folder from Salida back to Revision,
     and updates the database status to EN_REVISION so it can be edited and re-organized.
+    Only administrators are permitted to perform this operation.
     """
+    if usuario_id:
+        user = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not user or user.rol != "ADMIN":
+            raise ValueError("ACCESO DENEGADO: Solo los Administradores tienen autorización para devolver un reparto a revisión.")
+
     reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
     if not reparto:
         raise ValueError(f"No se encontró el reparto con ID {reparto_id}")

@@ -433,7 +433,12 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
         f"emp_{reparto['id']}" in st.session_state
     )
     
-    with st.expander(f"📁 {folder_name} (ID: {reparto['id']})", expanded=is_active):
+    is_admin = bool(current_user and current_user.get("rol") == "ADMIN")
+    es_devuelto = bool(reparto.get("motivo_revision") and "Devuelto" in str(reparto.get("motivo_revision")))
+    is_blocked_for_operator = bool(es_devuelto and not is_admin)
+
+    badge_rev = " 🔄 [DEVUELTO A REVISIÓN]" if es_devuelto else ""
+    with st.expander(f"📁 {folder_name}{badge_rev} (ID: {reparto['id']})", expanded=is_active):
         st.markdown(f"**Ruta actual de revisión:** `{reparto['ruta_nueva']}`")
         
         # Split layout: Left column for the form, Right column for the PDF viewer
@@ -443,6 +448,16 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
         with col_form:
             st.markdown("##### 🛠️ Datos del Reparto")
             
+            if is_blocked_for_operator:
+                st.warning(
+                    "🔒 **Edición Bloqueada para Operarios:** Este reparto fue devuelto a revisión para corrección de datos. "
+                    "Por seguridad, **únicamente los usuarios Administradores** tienen autorización para editar sus datos y re-organizarlo."
+                )
+            elif es_devuelto and is_admin:
+                st.info(
+                    "ℹ️ **Reparto Devuelto a Revisión:** Estás editando este reparto con permisos de Administrador."
+                )
+
             # Show motivo revision, missing, unsigned, excluded and found guias alerts
             if reparto.get("motivo_revision"):
                 st.error(f"🛑 **Motivo de Revisión:** {reparto['motivo_revision']}")
@@ -480,6 +495,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 "Empresa", 
                 options=empresa_options, 
                 index=default_empresa_idx,
+                disabled=is_blocked_for_operator,
                 key=f"emp_{reparto['id']}"
             )
             
@@ -495,6 +511,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 "Fecha de Reparto", 
                 value=default_date, 
                 format="DD/MM/YYYY",
+                disabled=is_blocked_for_operator,
                 key=f"fecha_{reparto['id']}"
             )
             
@@ -506,6 +523,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 f"Sucursal ({valid_suc_list})", 
                 value=reparto["sucursal"] if reparto["sucursal"] else "",
                 placeholder="Ej. BB, CF, NQ, TD, VR, OL, GR, TA...",
+                disabled=is_blocked_for_operator,
                 key=f"suc_{reparto['id']}"
             )
             
@@ -513,6 +531,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 f"Número de Reparto (Mínimo {min_dig_hint} dígitos para {suc_clean_cur or 'esta sucursal'})", 
                 value=reparto["nro_reparto"] if reparto["nro_reparto"] else "",
                 placeholder=f"Ej. {'138232' if min_dig_hint >= 6 else '12345'}",
+                disabled=is_blocked_for_operator,
                 key=f"num_{reparto['id']}"
             )
             
@@ -539,12 +558,14 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                         estado_res = st.selectbox(
                             f"Estado / Motivo ({g})",
                             options=opciones_resolucion,
+                            disabled=is_blocked_for_operator,
                             key=f"res_estado_{reparto['id']}_{g}"
                         )
                     with col_obs:
                         observacion = st.text_input(
                             f"Observación ({g})",
                             key=f"res_obs_{reparto['id']}_{g}",
+                            disabled=is_blocked_for_operator,
                             placeholder="Ej. Justificado por encargado..."
                         )
                         
@@ -577,12 +598,14 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                         estado_firma = st.selectbox(
                             f"Motivo sin firma ({g})",
                             options=opciones_firma,
+                            disabled=is_blocked_for_operator,
                             key=f"res_firma_estado_{reparto['id']}_{g}"
                         )
                     with col_obs_f:
                         observacion_f = st.text_input(
                             f"Observación ({g})",
                             key=f"res_firma_obs_{reparto['id']}_{g}",
+                            disabled=is_blocked_for_operator,
                             placeholder="Ej. Cliente autorizó por WhatsApp / Reclamar a chofer..."
                         )
                         
@@ -596,10 +619,13 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
             permitir_duplicado = st.checkbox(
                 "⚠️ Permitir guardar como duplicado / reimpresión", 
                 key=f"dup_{reparto['id']}",
+                disabled=is_blocked_for_operator,
                 help="Tilda esta opción si ya existe otro reparto con el mismo número pero deseas guardarlo igualmente."
             )
             
-            if st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True):
+            if is_blocked_for_operator:
+                st.button("🔒 Edición reservada exclusivamente para Administradores", key=f"btn_blocked_{reparto['id']}", disabled=True, use_container_width=True)
+            elif st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True):
                 suc_clean = sucursal.strip().upper()
                 is_valid_dig, act_dig, req_dig = validate_nro_reparto_digits(suc_clean, nro_reparto.strip())
                 if not sucursal.strip() or not nro_reparto.strip():

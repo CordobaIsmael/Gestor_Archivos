@@ -414,13 +414,16 @@ with tab_search:
                             except Exception as ex:
                                 st.error(f"Error de conexión: {ex}")
                                 
-                        if r.get("estado") == "ORGANIZADO":
+                        if is_admin and r.get("estado") == "ORGANIZADO":
                             with st.popover("🔄 Devolver a Revisión", use_container_width=True):
                                 st.markdown("##### ⚠️ Revertir a Revisión")
                                 st.write("Mueve la carpeta física de vuelta a `Revision/` para corregir datos erróneos de OCR (Empresa, Sucursal, Fecha o Nro de Reparto).")
                                 if st.button("Confirmar Devolución", key=f"btn_return_search_{r['id']}", type="primary", use_container_width=True):
                                     try:
-                                        res_ret = requests.post(f"{API_URL}/api/repartos/{r['id']}/return-to-revision")
+                                        res_ret = requests.post(
+                                            f"{API_URL}/api/repartos/{r['id']}/return-to-revision",
+                                            params={"usuario_id": current_user["id"]}
+                                        )
                                         if res_ret.status_code == 200:
                                             st.toast("✅ Reparto devuelto a Revisión exitosamente.")
                                             st.rerun()
@@ -580,19 +583,23 @@ with tab_organizados:
                             except Exception as ex:
                                 st.error(f"Error de conexión: {ex}")
 
-                        with st.popover("🔄 Devolver a Revisión", use_container_width=True):
-                            st.markdown("##### ⚠️ Revertir Reparto a Revisión")
-                            st.write(f"Mueve la carpeta física de vuelta a `Revision/` para corregir datos erróneos de OCR (Empresa, Sucursal, Fecha o Nro de Reparto).")
-                            if st.button("Confirmar Devolución", key=f"btn_confirm_return_{reparto_sel['id']}", type="primary", use_container_width=True):
-                                try:
-                                    res_ret = requests.post(f"{API_URL}/api/repartos/{reparto_sel['id']}/return-to-revision")
-                                    if res_ret.status_code == 200:
-                                        st.toast("✅ Reparto devuelto a Revisión exitosamente.")
-                                        st.rerun()
-                                    else:
-                                        st.error(res_ret.json().get("detail", "Error al devolver a revisión."))
-                                except Exception as ex:
-                                    st.error(f"Error de conexión: {ex}")
+                        if is_admin:
+                            with st.popover("🔄 Devolver a Revisión", use_container_width=True):
+                                st.markdown("##### ⚠️ Revertir Reparto a Revisión")
+                                st.write(f"Mueve la carpeta física de vuelta a `Revision/` para corregir datos erróneos de OCR (Empresa, Sucursal, Fecha o Nro de Reparto).")
+                                if st.button("Confirmar Devolución", key=f"btn_confirm_return_{reparto_sel['id']}", type="primary", use_container_width=True):
+                                    try:
+                                        res_ret = requests.post(
+                                            f"{API_URL}/api/repartos/{reparto_sel['id']}/return-to-revision",
+                                            params={"usuario_id": current_user["id"]}
+                                        )
+                                        if res_ret.status_code == 200:
+                                            st.toast("✅ Reparto devuelto a Revisión exitosamente.")
+                                            st.rerun()
+                                        else:
+                                            st.error(res_ret.json().get("detail", "Error al devolver a revisión."))
+                                    except Exception as ex:
+                                        st.error(f"Error de conexión: {ex}")
 
                     # List and view PDF files directly in web
                     st.markdown("##### 📄 Documentos Digitalizados (Acceso Web)")
