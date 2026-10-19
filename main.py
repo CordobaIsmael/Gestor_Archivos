@@ -145,6 +145,11 @@ class ProcessRequest(BaseModel):
     usuario_id: Optional[int] = None
     usuario_legajo: Optional[str] = None
 
+class AnularRepartoRequest(BaseModel):
+    usuario_id: Optional[int] = None
+    usuario_legajo: Optional[str] = None
+    motivo: Optional[str] = "Anulado para re-escaneo"
+
 @app.post("/api/process", summary="Process incoming folders")
 def process_folders(data: Optional[ProcessRequest] = None, db: Session = Depends(get_db)):
     try:
@@ -269,6 +274,35 @@ def return_to_revision_endpoint(reparto_id: int, usuario_id: Optional[int] = Non
         raise HTTPException(status_code=404, detail=str(fe))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al devolver a revisión: {str(e)}")
+
+@app.post("/api/repartos/{reparto_id}/anular", summary="Cancel reparto and permanently delete its physical folder")
+def anular_reparto_endpoint(
+    reparto_id: int, 
+    data: Optional[AnularRepartoRequest] = None, 
+    db: Session = Depends(get_db)
+):
+    try:
+        from core.organizer import anular_y_borrar_reparto
+        u_id = data.usuario_id if data else None
+        u_legajo = data.usuario_legajo if data else None
+        motivo = data.motivo if data and data.motivo else "Anulado para re-escaneo"
+        
+        result = anular_y_borrar_reparto(
+            db=db,
+            reparto_id=reparto_id,
+            usuario_id=u_id,
+            usuario_legajo=u_legajo,
+            motivo=motivo
+        )
+        return {
+            "status": "success",
+            "message": f"Reparto #{reparto_id} anulado en la base de datos y carpeta física eliminada de disco.",
+            "data": result
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al anular reparto: {str(e)}")
 
 @app.post("/api/repartos/{reparto_id}/open", summary="Open folder in File Explorer")
 def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
@@ -437,6 +471,35 @@ def download_faltantes_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
     )
+
+@app.post("/api/metrics/audit/run", summary="Run manual integrity audit comparing database vs physical disk")
+def run_audit_endpoint(
+    dias_atras: Optional[int] = Query(None, description="Number of days in the past (None = Histórico Total)"),
+    db: Session = Depends(get_db)
+):
+    from services.metrics_service import run_integrity_audit
+    return run_integrity_audit(db=db, dias_atras=dias_atras)
+
+@app.post("/api/metrics/audit/pdf", summary="Generate and download PDF audit report of DB vs disk irregularities")
+def download_audit_pdf(
+    dias_atras: Optional[int] = Query(None, description="Number of days in the past (None = Histórico Total)"),
+    admin_name: str = Query("Administrador", description="Admin name requesting the audit report"),
+    db: Session = Depends(get_db)
+):
+    from fastapi import Response
+    from services.metrics_service import run_integrity_audit, generate_audit_report_pdf
+    
+    results = run_integrity_audit(db=db, dias_atras=dias_atras)
+    pdf_bytes = generate_audit_report_pdf(results, admin_name=admin_name)
+    
+    filename = f"auditoria_integridad_{date.today().strftime('%Y%m%d')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    )
+
+
 
 
 

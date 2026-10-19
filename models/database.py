@@ -49,6 +49,11 @@ class Reparto(Base):
     es_duplicado = Column(Boolean, default=False)
     motivo_revision = Column(String(500), nullable=True)
 
+    # Cancellation / Soft Delete
+    fecha_anulacion = Column(DateTime, nullable=True)
+    usuario_anulacion = Column(String(50), nullable=True)
+    motivo_anulacion = Column(String(500), nullable=True)
+
     # Operator / User attribution
     usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
     usuario_legajo = Column(String(50), nullable=True)
@@ -72,6 +77,9 @@ class Reparto(Base):
             "resolucion_guias_sin_firma": self.resolucion_guias_sin_firma,
             "es_duplicado": self.es_duplicado or False,
             "motivo_revision": self.motivo_revision,
+            "fecha_anulacion": self.fecha_anulacion.isoformat() if self.fecha_anulacion else None,
+            "usuario_anulacion": self.usuario_anulacion,
+            "motivo_anulacion": self.motivo_anulacion,
             "usuario_id": self.usuario_id,
             "usuario_legajo": self.usuario_legajo,
             "fecha_procesamiento": self.fecha_procesamiento.isoformat() if self.fecha_procesamiento else None

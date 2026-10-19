@@ -639,3 +639,90 @@ def return_reparto_to_revision(db: Session, reparto_id: int, usuario_id: int = N
     
     print(f"Reparto #{reparto_id} returned to revision: moved to {final_dest}")
     return reparto.to_dict()
+
+def anular_y_borrar_reparto(
+    db: Session,
+    reparto_id: int,
+    usuario_id: int = None,
+    usuario_legajo: str = None,
+    motivo: str = "Anulado para re-escaneo"
+) -> dict:
+    """
+    Cancels a reparto (Soft Delete in DB: estado='ANULADO') and permanently deletes
+    its physical folder and PDF documents on disk.
+    This frees up the reparto number so it can be re-scanned and processed cleanly.
+    Restricted to ADMINISTRATORS only.
+    """
+    import shutil
+    from datetime import datetime
+
+    if usuario_id:
+        user = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not user or user.rol != "ADMIN":
+            raise ValueError("ACCESO DENEGADO: Solo los Administradores tienen autorización para anular y borrar repartos.")
+
+    reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
+    if not reparto:
+        raise ValueError(f"No se encontró el reparto con ID {reparto_id}")
+
+    # Protected root directories that must NEVER be deleted
+    protected_roots = {
+        Path(settings.ENTRADA).resolve(),
+        Path(settings.SALIDA).resolve(),
+        Path(settings.REVISION).resolve(),
+    }
+    for drv in ["C:\\", "D:\\", "A:\\", "Q:\\", "O:\\"]:
+        try:
+            protected_roots.add(Path(drv).resolve())
+        except Exception:
+            pass
+
+    # Find target directories to remove
+    target_dirs = set()
+    for path_str in [reparto.ruta_nueva, reparto.ruta_original, reparto.ruta_espejo]:
+        if path_str:
+            try:
+                p = Path(path_str).resolve()
+                if p not in protected_roots and p.exists() and p.is_dir():
+                    target_dirs.add(p)
+            except Exception:
+                pass
+
+    deleted_paths = []
+    for p in target_dirs:
+        try:
+            shutil.rmtree(p, ignore_errors=False)
+            deleted_paths.append(str(p))
+            print(f"Directorio de reparto eliminado permanentemente: {p}")
+
+            # Clean up empty parents in Salida / Revision (up to 4 levels)
+            curr = p.parent
+            for _ in range(4):
+                if curr not in protected_roots and curr.exists() and curr.is_dir() and not any(curr.iterdir()):
+                    curr.rmdir()
+                    curr = curr.parent
+                else:
+                    break
+        except Exception as err_del:
+            print(f"Aviso al eliminar directorio físico {p}: {err_del}")
+
+    # Soft delete in Database
+    reparto.estado = "ANULADO"
+    reparto.fecha_anulacion = datetime.utcnow()
+    reparto.usuario_anulacion = usuario_legajo or (user.legajo if (usuario_id and user) else "ADMIN")
+    reparto.motivo_anulacion = motivo or "Anulado para re-escaneo"
+    reparto.ruta_nueva = None
+    reparto.ruta_espejo = None
+
+    db.commit()
+    db.refresh(reparto)
+
+    return {
+        "id": reparto.id,
+        "nro_reparto": reparto.nro_reparto,
+        "sucursal": reparto.sucursal,
+        "estado": reparto.estado,
+        "motivo_anulacion": reparto.motivo_anulacion,
+        "carpetas_eliminadas": deleted_paths
+    }
+

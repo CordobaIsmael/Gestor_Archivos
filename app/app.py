@@ -366,8 +366,15 @@ with tab_search:
         else:
             st.markdown(f"**Resultados encontrados: {len(results)}**")
             for r, matched_guia_info in results:
-                estado_badge = "badge-organized" if r["estado"] == "ORGANIZADO" else "badge-revision"
-                estado_text = "ORGANIZADO" if r["estado"] == "ORGANIZADO" else "EN REVISIÓN"
+                if r["estado"] == "ORGANIZADO":
+                    estado_badge = "badge-organized"
+                    estado_text = "ORGANIZADO"
+                elif r["estado"] == "EN_REVISION":
+                    estado_badge = "badge-revision"
+                    estado_text = "EN REVISIÓN"
+                else:
+                    estado_badge = "badge-anulado"
+                    estado_text = "ANULADO"
                 
                 with st.container(border=True):
                     # If this was a match for an individual guía, display direct guia banner
@@ -392,72 +399,119 @@ with tab_search:
                             f"**Empresa:** {r['empresa']} | **Fecha:** {format_date_display(r['fecha'])} | "
                             f"👤 **Operador:** `{r.get('usuario_legajo') or 'S/A'}`"
                         )
+                        if r.get("estado") == "ANULADO":
+                            f_anul_str = format_date_display(r.get('fecha_anulacion')) if r.get('fecha_anulacion') else "S/F"
+                            st.markdown(
+                                f"<div style='background-color: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 0.85rem;'>"
+                                f"❌ <strong>Reparto Anulado:</strong> {r.get('motivo_anulacion') or 'Descartado para re-escaneo'}<br/>"
+                                f"<span style='color: #94a3b8;'>Anulado por: <code>{r.get('usuario_anulacion') or 'ADMIN'}</code> el {f_anul_str}. Archivos físicos eliminados de disco.</span>"
+                                f"</div>",
+                                unsafe_allow_html=True
+                            )
                         if r.get("guias_faltantes"):
                             st.markdown(f"⚠️ **Guías Faltantes:** `{r['guias_faltantes'].replace(',', ', ')}`")
                         if r.get("guias_sin_firma"):
                             st.markdown(f"✍️ **Guías Sin Firma:** `{r['guias_sin_firma'].replace(',', ', ')}`")
                         if r.get("guias_no_entregadas"):
                             st.markdown(f"🚫 **Guías No Entregadas:** `{r['guias_no_entregadas'].replace(',', ', ')}`")
-                        ruta_espejo_disp = r.get('ruta_espejo') or r['ruta_nueva'] or r['ruta_original']
-                        st.markdown(f"**Ruta (Espejo):** `{ruta_espejo_disp}`")
-                        unc_disp = get_network_unc_path(ruta_espejo_disp)
-                        if unc_disp and unc_disp != ruta_espejo_disp:
-                            st.caption(f"🌐 **Ruta de Red (para otras PCs):** `{unc_disp}`")
+                        if r.get("estado") != "ANULADO":
+                            ruta_espejo_disp = r.get('ruta_espejo') or r['ruta_nueva'] or r['ruta_original']
+                            st.markdown(f"**Ruta (Espejo):** `{ruta_espejo_disp}`")
+                            unc_disp = get_network_unc_path(ruta_espejo_disp)
+                            if unc_disp and unc_disp != ruta_espejo_disp:
+                                st.caption(f"🌐 **Ruta de Red (para otras PCs):** `{unc_disp}`")
                         
                     with col_btn:
                         st.write("")
-                        if st.button("📂 Explorador Local", key=f"open_btn_{r['id']}", use_container_width=True):
-                            try:
-                                res_open = requests.post(f"{API_URL}/api/repartos/{r['id']}/open")
-                                if res_open.status_code == 200:
-                                    st.toast("Carpeta abierta en el Explorador.")
-                                else:
-                                    st.error(res_open.json().get("detail", "Error al abrir."))
-                            except Exception as ex:
-                                st.error(f"Error de conexión: {ex}")
-                                
-                        if is_admin and r.get("estado") == "ORGANIZADO":
-                            with st.popover("🔄 Devolver a Revisión", use_container_width=True):
-                                st.markdown("##### ⚠️ Revertir a Revisión")
-                                st.write("Mueve la carpeta física de vuelta a `Revision/` para corregir datos erróneos de OCR (Empresa, Sucursal, Fecha o Nro de Reparto).")
-                                if st.button("Confirmar Devolución", key=f"btn_return_search_{r['id']}", type="primary", use_container_width=True):
-                                    try:
-                                        res_ret = requests.post(
-                                            f"{API_URL}/api/repartos/{r['id']}/return-to-revision",
-                                            params={"usuario_id": current_user["id"]}
-                                        )
-                                        if res_ret.status_code == 200:
-                                            st.toast("✅ Reparto devuelto a Revisión exitosamente.")
-                                            st.rerun()
-                                        else:
-                                            st.error(res_ret.json().get("detail", "Error al devolver a revisión."))
-                                    except Exception as ex:
-                                        st.error(f"Error de conexión: {ex}")
+                        if r.get("estado") != "ANULADO":
+                            if st.button("📂 Explorador Local", key=f"open_btn_{r['id']}", use_container_width=True):
+                                try:
+                                    res_open = requests.post(f"{API_URL}/api/repartos/{r['id']}/open")
+                                    if res_open.status_code == 200:
+                                        st.toast("Carpeta abierta en el Explorador.")
+                                    else:
+                                        st.error(res_open.json().get("detail", "Error al abrir."))
+                                except Exception as ex:
+                                    st.error(f"Error de conexión: {ex}")
+                                    
+                            if is_admin and r.get("estado") == "ORGANIZADO":
+                                with st.popover("🔄 Devolver a Revisión", use_container_width=True):
+                                    st.markdown("##### ⚠️ Revertir a Revisión")
+                                    st.write("Mueve la carpeta física de vuelta a `Revision/` para corregir datos erróneos de OCR (Empresa, Sucursal, Fecha o Nro de Reparto).")
+                                    if st.button("Confirmar Devolución", key=f"btn_return_search_{r['id']}", type="primary", use_container_width=True):
+                                        try:
+                                            res_ret = requests.post(
+                                                f"{API_URL}/api/repartos/{r['id']}/return-to-revision",
+                                                params={"usuario_id": current_user["id"]}
+                                            )
+                                            if res_ret.status_code == 200:
+                                                st.toast("✅ Reparto devuelto a Revisión exitosamente.")
+                                                st.rerun()
+                                            else:
+                                                st.error(res_ret.json().get("detail", "Error al devolver a revisión."))
+                                        except Exception as ex:
+                                            st.error(f"Error de conexión: {ex}")
+
+                            if is_admin and r.get("estado") in ["ORGANIZADO", "EN_REVISION"]:
+                                with st.popover("🗑️ Anular y Borrar", use_container_width=True):
+                                    st.markdown("##### ⚠️ Confirmar Anulación y Borrado")
+                                    st.error(
+                                        "Esta acción cambiará el estado del reparto a **ANULADO** en la base de datos y "
+                                        "**eliminará definitivamente la carpeta física y sus PDFs de disco**, "
+                                        "permitiendo volver a escanear este reparto desde cero."
+                                    )
+                                    motivo_anul_s = st.text_input(
+                                        "Motivo de anulación:", 
+                                        value="Re-escaneo desde cero por escaneo defectuoso", 
+                                        key=f"motivo_anul_search_{r['id']}"
+                                    )
+                                    confirm_del_s = st.checkbox(
+                                        "Confirmo la eliminación física definitiva de los archivos en disco.", 
+                                        key=f"chk_anul_search_{r['id']}"
+                                    )
+                                    if st.button("🚨 Eliminar Definitivamente y Anular", key=f"btn_anular_search_{r['id']}", type="primary", disabled=not confirm_del_s, use_container_width=True):
+                                        try:
+                                            payload_anul = {
+                                                "usuario_id": current_user["id"],
+                                                "usuario_legajo": current_user["legajo"],
+                                                "motivo": motivo_anul_s.strip() if motivo_anul_s else "Anulado para re-escaneo"
+                                            }
+                                            res_an = requests.post(f"{API_URL}/api/repartos/{r['id']}/anular", json=payload_anul)
+                                            if res_an.status_code == 200:
+                                                st.toast(f"✅ Reparto #{r.get('nro_reparto') or r['id']} anulado y eliminado del disco.")
+                                                st.rerun()
+                                            else:
+                                                st.error(res_an.json().get("detail", "Error al anular."))
+                                        except Exception as ex:
+                                            st.error(f"Error de conexión: {ex}")
+                        else:
+                            st.caption("🔒 Archivos borrados")
                                 
                     # Fetch and display web PDF files directly
-                    with st.expander("📄 Ver / Descargar Documentos PDF de este Reparto"):
-                        try:
-                            r_files = requests.get(f"{API_URL}/api/repartos/{r['id']}/files")
-                            if r_files.status_code == 200:
-                                pdf_list = r_files.json()
-                                if not pdf_list:
-                                    st.info("No se encontraron archivos PDF en la carpeta de este reparto.")
+                    if r.get("estado") != "ANULADO":
+                        with st.expander("📄 Ver / Descargar Documentos PDF de este Reparto"):
+                            try:
+                                r_files = requests.get(f"{API_URL}/api/repartos/{r['id']}/files")
+                                if r_files.status_code == 200:
+                                    pdf_list = r_files.json()
+                                    if not pdf_list:
+                                        st.info("No se encontraron archivos PDF en la carpeta de este reparto.")
+                                    else:
+                                        for pdf_f in pdf_list:
+                                            file_url = f"{API_URL}/api/repartos/{r['id']}/files/{pdf_f['name']}"
+                                            c_f1, c_f2 = st.columns([3, 1])
+                                            with c_f1:
+                                                icon_p = "📋" if pdf_f.get("is_hoja") else "📄"
+                                                st.markdown(f"{icon_p} **{pdf_f['name']}** <span style='color: #888; font-size: 0.8rem;'>({pdf_f['size_kb']} KB)</span>", unsafe_allow_html=True)
+                                            with c_f2:
+                                                st.markdown(
+                                                    f"<a href='{file_url}' target='_blank' style='display: inline-block; width: 100%; text-align: center; background-color: #2563eb; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold;'>👁️ Ver PDF</a>",
+                                                    unsafe_allow_html=True
+                                                )
                                 else:
-                                    for pdf_f in pdf_list:
-                                        file_url = f"{API_URL}/api/repartos/{r['id']}/files/{pdf_f['name']}"
-                                        c_f1, c_f2 = st.columns([3, 1])
-                                        with c_f1:
-                                            icon_p = "📋" if pdf_f.get("is_hoja") else "📄"
-                                            st.markdown(f"{icon_p} **{pdf_f['name']}** <span style='color: #888; font-size: 0.8rem;'>({pdf_f['size_kb']} KB)</span>", unsafe_allow_html=True)
-                                        with c_f2:
-                                            st.markdown(
-                                                f"<a href='{file_url}' target='_blank' style='display: inline-block; width: 100%; text-align: center; background-color: #2563eb; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold;'>👁️ Ver PDF</a>",
-                                                unsafe_allow_html=True
-                                            )
-                            else:
-                                st.error("No se pudo cargar la lista de archivos.")
-                        except Exception as e_f:
-                            st.error(f"Error al listar PDFs: {e_f}")
+                                    st.error("No se pudo cargar la lista de archivos.")
+                            except Exception as e_f:
+                                st.error(f"Error al listar PDFs: {e_f}")
 
 with tab_organizados:
     st.markdown("### 🗂️ Historial de Archivos Organizados")

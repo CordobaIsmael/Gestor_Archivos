@@ -720,3 +720,324 @@ def generate_missing_repartos_pdf(
     doc.build(story, canvasmaker=NumberedCanvas)
     return buffer.getvalue()
 
+
+# ----------------- AUDITORÍA DE INTEGRIDAD (DISCO VS BASE DE DATOS) -----------------
+def run_integrity_audit(db: Session, dias_atras: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Executes a manual cross-check between database records and physical disk files.
+    If 'dias_atras' is None or 0, evaluates the ENTIRE historical database (Histórico Completo).
+    If 'dias_atras' is specified, filters records within that number of days.
+    Detects missing folders, empty folders, and orphaned disk folders.
+    """
+    from datetime import date, timedelta
+    from pathlib import Path
+    from sqlalchemy import func
+    from config.settings import settings
+    from services.file_manager import get_mirror_path
+
+    today = date.today()
+    query = db.query(Reparto).filter(Reparto.estado == 'ORGANIZADO')
+
+    if dias_atras and dias_atras > 0:
+        since_date = today - timedelta(days=dias_atras)
+        query = query.filter(
+            func.coalesce(Reparto.fecha, func.date(Reparto.fecha_procesamiento)) >= since_date
+        )
+        desde_label = since_date.isoformat()
+    else:
+        desde_label = "Histórico Completo"
+
+    records = query.order_by(Reparto.fecha.desc()).all()
+
+
+    total_evaluados = len(records)
+    irregularidades = []
+    verificados_ok = 0
+
+    drives_checked = set()
+    for r in records:
+        if r.ruta_nueva:
+            p = Path(r.ruta_nueva)
+            if p.drive:
+                drives_checked.add(p.drive)
+        if r.ruta_espejo:
+            p = Path(r.ruta_espejo)
+            if p.drive:
+                drives_checked.add(p.drive)
+
+    drives_status_list = []
+    for d in sorted(drives_checked):
+        is_mounted = Path(f"{d}/").exists()
+        st_text = "Conectada" if is_mounted else "No conectada o inaccesible"
+        drives_status_list.append(f"Unidad {d} ({st_text})")
+
+    unidades_estado_str = " • ".join(drives_status_list) if drives_status_list else "Sin unidades específicas"
+
+    for r in records:
+        p_master = Path(r.ruta_nueva) if r.ruta_nueva else None
+        p_mirror = Path(r.ruta_espejo) if r.ruta_espejo else None
+        
+        folder_found = None
+        if p_master and p_master.exists():
+            folder_found = p_master
+        elif p_mirror and p_mirror.exists():
+            folder_found = p_mirror
+        else:
+            if r.ruta_nueva:
+                alt_mirror = Path(get_mirror_path(r.ruta_nueva))
+                if alt_mirror.exists():
+                    folder_found = alt_mirror
+
+        rep_codigo = f"{r.sucursal or 'S/D'}_{r.nro_reparto or 'S/N'}"
+        f_iso = r.fecha.isoformat() if r.fecha else (r.fecha_procesamiento.strftime("%Y-%m-%d") if r.fecha_procesamiento else "S/F")
+
+        if not folder_found:
+            irregularidades.append({
+                "id": r.id,
+                "reparto": rep_codigo,
+                "sucursal": r.sucursal or "S/D",
+                "nro_reparto": r.nro_reparto or "S/N",
+                "fecha": f_iso,
+                "tipo": "FALTANTE_EN_DISCO",
+                "descripcion": "El reparto figura en la base de datos pero su carpeta no existe en el disco maestro ni en la unidad espejo.",
+                "ruta_esperada": r.ruta_nueva or (r.ruta_espejo or "No asignada")
+            })
+        else:
+            try:
+                pdfs = list(folder_found.glob("*.pdf"))
+            except Exception:
+                pdfs = []
+
+            if len(pdfs) == 0:
+                irregularidades.append({
+                    "id": r.id,
+                    "reparto": rep_codigo,
+                    "sucursal": r.sucursal or "S/D",
+                    "nro_reparto": r.nro_reparto or "S/N",
+                    "fecha": f_iso,
+                    "tipo": "CARPETA_VACIA",
+                    "descripcion": f"La carpeta física existe pero no contiene archivos PDF digitalizados.",
+                    "ruta_esperada": str(folder_found)
+                })
+            else:
+                verificados_ok += 1
+
+    tasa_integridad = round((verificados_ok / total_evaluados * 100), 1) if total_evaluados > 0 else 100.0
+
+    return {
+        "desde": desde_label,
+        "hasta": today.isoformat(),
+        "total_evaluados": total_evaluados,
+        "verificados_ok": verificados_ok,
+        "total_irregularidades": len(irregularidades),
+        "tasa_integridad": tasa_integridad,
+        "unidades_estado": unidades_estado_str,
+        "irregularidades": irregularidades
+    }
+
+
+def generate_audit_report_pdf(
+    audit_results: Dict[str, Any],
+    admin_name: str = "Administrador"
+) -> bytes:
+    """Builds a formal multi-page PDF report detailing irregularities between DB and physical storage."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=42
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#1e293b')
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=13,
+        textColor=colors.HexColor('#64748b')
+    )
+    section_title = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor('#0f172a'),
+        spaceBefore=10,
+        spaceAfter=6
+    )
+    cell_bold = ParagraphStyle(
+        'CellBold',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#0f172a')
+    )
+    cell_regular = ParagraphStyle(
+        'CellRegular',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#334155')
+    )
+    cell_header = ParagraphStyle(
+        'CellHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.white
+    )
+
+    story = []
+
+    # Title Banner
+    desde_str = audit_results.get("desde", "")
+    hasta_str = audit_results.get("hasta", "")
+    periodo_desc = "Histórico Completo (Toda la Base de Datos)" if (not desde_str or "Histórico" in desde_str) else f"{desde_str} al {hasta_str}"
+
+    story.append(Paragraph("GESTOR ARCHIVO | AUDITORÍA DE INTEGRIDAD FÍSICA", title_style))
+    story.append(Paragraph(f"Control Cruzado entre Base de Datos y Almacenamiento en Disco — {periodo_desc}", subtitle_style))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563eb'), spaceBefore=2, spaceAfter=8))
+
+    # Metadata & Scope
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    drives_status = audit_results.get("unidades_estado", "Verificadas")
+
+    meta_data = [
+        [
+            Paragraph(f"<b>Fecha de Auditoría:</b> {now_str}", cell_regular),
+            Paragraph(f"<b>Responsable:</b> {admin_name} (Administrador)", cell_regular)
+        ],
+        [
+            Paragraph(f"<b>Período Evaluado:</b> {periodo_desc}", cell_regular),
+            Paragraph(f"<b>Estado de Unidades:</b> {drives_status}", cell_regular)
+        ]
+    ]
+
+    meta_table = Table(meta_data, colWidths=[270, 270])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#e2e8f0')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 10))
+
+    # KPI Summary Cards
+    tot_eval = audit_results.get("total_evaluados", 0)
+    verif_ok = audit_results.get("verificados_ok", 0)
+    tot_irreg = audit_results.get("total_irregularidades", 0)
+    pct_integridad = audit_results.get("tasa_integridad", 0.0)
+
+    color_irreg = '#ef4444' if tot_irreg > 0 else '#10b981'
+    kpi_cards = [
+        [
+            Paragraph(f"<font size=14 color='#2563eb'><b>{tot_eval:,}</b></font><br/><font size=7.5 color='#64748b'>EVALUADOS EN BD</font>", ParagraphStyle('KPI', alignment=1)),
+            Paragraph(f"<font size=14 color='#10b981'><b>{verif_ok:,}</b></font><br/><font size=7.5 color='#64748b'>VERIFICADOS EN DISCO</font>", ParagraphStyle('KPI', alignment=1)),
+            Paragraph(f"<font size=14 color='{color_irreg}'><b>{tot_irreg:,}</b></font><br/><font size=7.5 color='#64748b'>IRREGULARIDADES</font>", ParagraphStyle('KPI', alignment=1)),
+            Paragraph(f"<font size=14 color='#8b5cf6'><b>{pct_integridad}%</b></font><br/><font size=7.5 color='#64748b'>INTEGRIDAD FÍSICA</font>", ParagraphStyle('KPI', alignment=1)),
+        ]
+    ]
+    kpi_table = Table(kpi_cards, colWidths=[135, 135, 135, 135])
+    kpi_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f1f5f9')),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#cbd5e1')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 12))
+
+    # Irregularities detail
+    story.append(Paragraph(f"Detalle de Irregularidades Detectadas ({tot_irreg:,} casos)", section_title))
+
+    irregs = audit_results.get("irregularidades", [])
+    if not irregs:
+        success_p = Paragraph(
+            "<b>¡AUDITORÍA 100% EXITOSA!</b> No se encontraron irregularidades. Todos los repartos registrados en la base de datos "
+            "cuentan con sus carpetas correspondientes y sus documentos PDF físicos verificados en disco.",
+            ParagraphStyle('Success', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.HexColor('#166534'), alignment=1)
+        )
+        succ_table = Table([[success_p]], colWidths=[540])
+        succ_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#dcfce7')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#86efac')),
+            ('TOPPADDING', (0,0), (-1,-1), 12),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 12),
+            ('LEFTPADDING', (0,0), (-1,-1), 16),
+            ('RIGHTPADDING', (0,0), (-1,-1), 16),
+        ]))
+        story.append(succ_table)
+    else:
+        table_headers = [
+            Paragraph("<b>N°</b>", cell_header),
+            Paragraph("<b>Reparto</b>", cell_header),
+            Paragraph("<b>Fecha</b>", cell_header),
+            Paragraph("<b>Tipo de Problema</b>", cell_header),
+            Paragraph("<b>Descripción / Ruta Esperada</b>", cell_header),
+        ]
+        rows = [table_headers]
+        for idx, item in enumerate(irregs, 1):
+            tipo_label = item.get("tipo", "ANOMALÍA")
+            if tipo_label == "FALTANTE_EN_DISCO":
+                badge_txt = "<font color='#dc2626'><b>Faltante en Disco</b></font>"
+            elif tipo_label == "CARPETA_VACIA":
+                badge_txt = "<font color='#d97706'><b>Carpeta Vacía</b></font>"
+            elif tipo_label == "CARPETA_HUERFANA":
+                badge_txt = "<font color='#9333ea'><b>Carpeta Huérfana</b></font>"
+            else:
+                badge_txt = f"<b>{tipo_label}</b>"
+
+            desc = item.get("descripcion", "")
+            ruta = item.get("ruta_esperada", "")
+            full_desc = f"{desc}<br/><font color='#64748b' size=7>{ruta}</font>" if ruta else desc
+
+            rows.append([
+                Paragraph(str(idx), cell_regular),
+                Paragraph(f"<b>{item.get('reparto', '-')}</b>", cell_bold),
+                Paragraph(str(item.get("fecha", "-")), cell_regular),
+                Paragraph(badge_txt, cell_regular),
+                Paragraph(full_desc, cell_regular),
+            ])
+
+        t_irregs = Table(rows, colWidths=[35, 85, 65, 115, 240], repeatRows=1)
+        t_irregs.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#cbd5e1')),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f8fafc')]),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(t_irregs)
+
+    doc.build(story, canvasmaker=NumberedCanvas)
+    return buffer.getvalue()
+
+

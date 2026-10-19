@@ -387,6 +387,12 @@ def inject_custom_css():
             border: 1px solid rgba(245, 158, 11, 0.3);
         }
         
+        .badge-anulado {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
         /* Buttons custom overrides */
         div.stButton > button:first-child {
             background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
@@ -681,6 +687,40 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                             st.error(f"Error al procesar: {res.json().get('detail', 'Unknown error')}")
                     except Exception as e:
                         st.error(f"Error de conexión con el servidor: {e}")
+
+            if is_admin:
+                st.write("")
+                with st.popover("🗑️ Anular y Borrar Carpeta para Re-escanear", use_container_width=True):
+                    st.markdown("##### ⚠️ Confirmar Anulación y Borrado Físico")
+                    st.error(
+                        "Esta acción cambiará el estado del reparto a **ANULADO** en la base de datos y "
+                        "**eliminará definitivamente la carpeta física y sus PDFs de disco**, "
+                        "permitiendo volver a escanear este reparto desde cero sin conflictos."
+                    )
+                    motivo_anul = st.text_input(
+                        "Motivo de descarte:", 
+                        value="Re-escaneo desde cero por escaneo defectuoso", 
+                        key=f"motivo_anul_rev_{reparto['id']}"
+                    )
+                    confirm_del = st.checkbox(
+                        "Confirmo la eliminación física permanente de los archivos en disco.", 
+                        key=f"chk_anul_rev_{reparto['id']}"
+                    )
+                    if st.button("🚨 Eliminar Definitivamente y Anular", key=f"btn_anular_rev_{reparto['id']}", type="primary", disabled=not confirm_del, use_container_width=True):
+                        try:
+                            payload_anul = {
+                                "usuario_id": current_user.get("id") if current_user else None,
+                                "usuario_legajo": current_user.get("legajo") if current_user else None,
+                                "motivo": motivo_anul.strip() if motivo_anul else "Anulado para re-escaneo"
+                            }
+                            res_a = requests.post(f"{API_URL}/api/repartos/{reparto['id']}/anular", json=payload_anul)
+                            if res_a.status_code == 200:
+                                st.toast(f"✅ Reparto #{reparto.get('nro_reparto') or reparto['id']} anulado y eliminado del disco.")
+                                on_resolve_callback()
+                            else:
+                                st.error(res_a.json().get("detail", "Error al anular reparto."))
+                        except Exception as ex_an:
+                            st.error(f"Error de conexión: {ex_an}")
                         
         # ----------------- COLUMNA DERECHA: VISOR DE PDF -----------------
         with col_pdf:
@@ -745,7 +785,12 @@ def render_metrics_tab(current_user: dict, api_url: str):
     """Renders the dedicated Admin Metrics & Productivity tab with operational KPIs and PDF export."""
     from datetime import date, datetime, timedelta
     import pandas as pd
-    from services.metrics_service import generate_metrics_pdf, generate_missing_repartos_pdf
+    from services.metrics_service import (
+        generate_metrics_pdf, 
+        generate_missing_repartos_pdf,
+        generate_audit_report_pdf
+    )
+
 
     st.markdown("### 📊 Rendimiento de Producción y Productividad de Operadores")
     st.markdown(
@@ -1170,5 +1215,156 @@ def render_metrics_tab(current_user: dict, api_url: str):
                     st.markdown(f"<div style='max-height: 250px; overflow-y: auto; padding: 10px; background: #0f172a; border-radius: 8px; border: 1px solid #334155;'>{formatted_pills}</div>", unsafe_allow_html=True)
                     if len(filtered_nums) > 300:
                         st.caption(f"Mostrando 300 de {len(filtered_nums)} números coincidentes.")
+
+    # ---------------- PUNTO 4: AUDITORÍA MANUAL DE INTEGRIDAD (DISCO VS BD) ----------------
+    st.markdown("---")
+    st.markdown("#### 4. 🛡️ Auditoría de Integridad: Almacenamiento Físico vs. Base de Datos")
+    st.markdown(
+        "Ejecuta un control cruzado manual para comparar cada registro de la base de datos contra el almacenamiento físico en disco. "
+        "Permite auditar los repartos del **último año** (365 días) o el **histórico completo** para detectar carpetas faltantes o vacías."
+    )
+
+    c_audit_btn1, c_audit_btn2, c_audit_pdf = st.columns([1.3, 1.4, 1.8])
+    with c_audit_btn1:
+        btn_audit_year = st.button("📅 Auditoría (Último Año)", use_container_width=True, key="btn_run_integrity_audit_year", help="Auditar integridad física de repartos desde hace 1 año hasta la fecha.")
+    with c_audit_btn2:
+        btn_audit_total = st.button("🚀 Auditoría Total (Histórico)", type="primary", use_container_width=True, key="btn_run_integrity_audit_total", help="Auditar integridad física de todos los repartos registrados históricamente.")
+
+    if btn_audit_year:
+        with st.spinner("Auditando integridad física y base de datos (Último Año - 365 días)..."):
+            try:
+                r_aud = requests.post(f"{api_url}/api/metrics/audit/run", params={"dias_atras": 365}, timeout=90)
+                if r_aud.status_code == 200:
+                    st.session_state["audit_results"] = r_aud.json()
+                    st.session_state["audit_scope_label"] = "ultimo_ano"
+                    st.toast("Auditoría del último año completada con éxito.")
+                else:
+                    st.error(f"Error al ejecutar auditoría: {r_aud.text}")
+            except Exception as ex_a:
+                st.error(f"Error de conexión con el backend: {ex_a}")
+
+    if btn_audit_total:
+        with st.spinner("Auditando integridad física y base de datos (Histórico Completo)..."):
+            try:
+                r_aud = requests.post(f"{api_url}/api/metrics/audit/run", timeout=90)
+                if r_aud.status_code == 200:
+                    st.session_state["audit_results"] = r_aud.json()
+                    st.session_state["audit_scope_label"] = "historico_completo"
+                    st.toast("Auditoría histórica completa completada con éxito.")
+                else:
+                    st.error(f"Error al ejecutar auditoría: {r_aud.text}")
+            except Exception as ex_a:
+                st.error(f"Error de conexión con el backend: {ex_a}")
+
+    audit_res = st.session_state.get("audit_results")
+    if audit_res:
+        with c_audit_pdf:
+            pdf_aud_bytes = generate_audit_report_pdf(
+                audit_res,
+                admin_name=current_user.get("nombre", "Administrador")
+            )
+            scope_prefix = st.session_state.get("audit_scope_label", "auditoria")
+            st.download_button(
+                label="📥 Descargar Informe en PDF",
+                data=pdf_aud_bytes,
+                file_name=f"auditoria_integridad_{scope_prefix}_{today.strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+                help="Descargar el informe oficial en PDF detallando todas las irregularidades encontradas."
+            )
+
+        # Status alert
+        tot_irregs = audit_res.get("total_irregularidades", 0)
+        periodo_txt = audit_res.get('desde', 'Histórico Completo')
+        if periodo_txt != 'Histórico Completo' and audit_res.get('hasta'):
+            periodo_txt = f"{periodo_txt} al {audit_res.get('hasta')}"
+
+        if tot_irregs == 0:
+            st.success(
+                f"✅ **¡Auditoría 100% Exitosa!** Se evaluaron **{audit_res['total_evaluados']:,}** repartos ({periodo_txt}) "
+                f"y todos cuentan con sus archivos físicos en disco."
+            )
+        else:
+            st.warning(
+                f"⚠️ **Auditoría completada:** Se detectaron **{tot_irregs:,} irregularidades** en los {audit_res['total_evaluados']:,} "
+                f"repartos evaluados ({periodo_txt})."
+            )
+
+        if audit_res.get("unidades_estado"):
+            st.caption(f"💾 **Estado de unidades:** {audit_res['unidades_estado']}")
+
+
+        # KPI cards
+        c_a1, c_a2, c_a3, c_a4 = st.columns(4)
+        with c_a1:
+            st.markdown(
+                f"""
+                <div class="stat-card primary">
+                    <div class="stat-value" style="color: #3b82f6;">{audit_res['total_evaluados']:,}</div>
+                    <div class="stat-label">Evaluados en BD</div>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        with c_a2:
+            st.markdown(
+                f"""
+                <div class="stat-card organized">
+                    <div class="stat-value" style="color: #10b981;">{audit_res['verificados_ok']:,}</div>
+                    <div class="stat-label">Verificados en Disco</div>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        with c_a3:
+            color_irr = "#ef4444" if tot_irregs > 0 else "#10b981"
+            st.markdown(
+                f"""
+                <div class="stat-card revision">
+                    <div class="stat-value" style="color: {color_irr};">{tot_irregs:,}</div>
+                    <div class="stat-label">Irregularidades</div>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        with c_a4:
+            st.markdown(
+                f"""
+                <div class="stat-card purple">
+                    <div class="stat-value" style="color: #8b5cf6;">{audit_res['tasa_integridad']}%</div>
+                    <div class="stat-label">Integridad Física</div>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+
+        # Table of irregularities
+        irreg_list = audit_res.get("irregularidades", [])
+        if irreg_list:
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown(f"##### ⚠️ Listado de Irregularidades ({len(irreg_list):,})")
+                
+                df_irr = pd.DataFrame(irreg_list)
+                df_irr["Tipo"] = df_irr["tipo"].apply(
+                    lambda t: "❌ Faltante en Disco" if t == "FALTANTE_EN_DISCO" else ("⚠️ Carpeta Vacía (0 PDFs)" if t == "CARPETA_VACIA" else t)
+                )
+                df_irr["Reparto"] = df_irr["reparto"].apply(lambda r: f"#{r}")
+                df_irr = df_irr.rename(columns={
+                    "reparto": "Código",
+                    "fecha": "Fecha Reparto",
+                    "descripcion": "Descripción del Problema",
+                    "ruta_esperada": "Ruta Esperada"
+                })
+                df_irr.index = df_irr.index + 1
+                df_irr.index.name = "N°"
+                
+                st.dataframe(
+                    df_irr[["Código", "Fecha Reparto", "Tipo", "Descripción del Problema", "Ruta Esperada"]],
+                    use_container_width=True,
+                    height=350
+                )
+
 
 
