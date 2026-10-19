@@ -40,8 +40,9 @@ class Settings(BaseSettings):
     # Server & API configuration for LAN access
     SERVER_IP: str = get_local_ip()
     API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
-    API_URL: str = f"http://{get_local_ip()}:8000"
+    API_PORT: int = 8502
+    API_URL: str = f"http://{get_local_ip()}:8502"
+
 
     # Official valid sucursales
     VALID_SUCURSALES: dict = {

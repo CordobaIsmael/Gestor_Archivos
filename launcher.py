@@ -30,9 +30,9 @@ def launch():
     backend_cmd = [
         sys.executable, "-m", "uvicorn", "main:app",
         "--host", "0.0.0.0",
-        "--port", "8000"
+        "--port", "8502"
     ]
-    print("-> Iniciando Backend (FastAPI) en http://0.0.0.0:8000...")
+    print("-> Iniciando Backend (FastAPI) en http://0.0.0.0:8502...")
     backend_proc = subprocess.Popen(
         backend_cmd, 
         cwd=str(base_dir)
@@ -72,8 +72,9 @@ def launch():
     print(f"   - Acceso Local (esta PC): http://localhost:8501")
     if local_ip != "localhost":
         print(f"   - Acceso en Red Local (otras PC): http://{local_ip}:8501")
-    print(f"   - API Backend: http://localhost:8000")
-    print(f"   - Swagger Docs: http://localhost:8000/docs")
+    print(f"   - API Backend: http://localhost:8502")
+    print(f"   - Swagger Docs: http://localhost:8502/docs")
+
     print("Presiona Ctrl+C para detener ambos procesos.")
     print("==================================================\n")
 

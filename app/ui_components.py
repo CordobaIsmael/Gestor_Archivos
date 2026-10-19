@@ -561,6 +561,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                     "Guia Escaneada",
                     "Vuelta a Deposito",
                     "En REMISION",
+                    "Numeración inexistente",
                     "Otro"
                 ]
                 
@@ -575,11 +576,16 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                             key=f"res_estado_{reparto['id']}_{g}"
                         )
                     with col_obs:
+                        placeholder_obs = (
+                            "Ej. Indicar número real de guía (ej. x.22.135744)..."
+                            if estado_res == "Numeración inexistente"
+                            else "Ej. Justificado por encargado..."
+                        )
                         observacion = st.text_input(
                             f"Observación ({g})",
                             key=f"res_obs_{reparto['id']}_{g}",
                             disabled=is_blocked_for_operator,
-                            placeholder="Ej. Justificado por encargado..."
+                            placeholder=placeholder_obs
                         )
                         
                     resolucion_inputs[g] = {

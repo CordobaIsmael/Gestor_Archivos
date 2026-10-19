@@ -59,5 +59,6 @@ python launcher.py
 ```
 
 - **Frontend (Streamlit)**: Accesible en `http://localhost:8501`
-- **Backend (FastAPI)**: Accesible en `http://localhost:8000`
-- **Documentación Interactiva (Swagger)**: Accesible en `http://localhost:8000/docs`
+- **Backend (FastAPI)**: Accesible en `http://localhost:8502`
+- **Documentación Interactiva (Swagger)**: Accesible en `http://localhost:8502/docs`
+
