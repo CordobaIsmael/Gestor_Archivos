@@ -42,7 +42,8 @@ from ui_components import (
     inject_custom_css, 
     render_header, 
     render_stats, 
-    render_reparto_row
+    render_reparto_row,
+    render_metrics_tab
 )
 
 # Configuration
@@ -233,10 +234,11 @@ if st.session_state.get("process_feedback"):
 is_admin = (current_user.get("rol") == "ADMIN")
 
 if is_admin:
-    tab_revision, tab_search, tab_organizados, tab_operadores = st.tabs([
+    tab_revision, tab_search, tab_organizados, tab_metricas, tab_operadores = st.tabs([
         f"⚠️ En Revisión ({len(en_revision)})", 
         "🔍 Buscar Reparto",
         f"✓ Organizados ({len(organizados)})",
+        "📊 Métricas & Rendimiento",
         "👥 Gestión de Operadores"
     ])
 else:
@@ -624,8 +626,11 @@ with tab_organizados:
                     except Exception as e_f:
                         st.error(f"Error al listar PDFs: {e_f}")
 
-# ----------------- ADMIN OPERATOR MANAGEMENT TAB -----------------
+# ----------------- ADMIN METRICS & OPERATOR MANAGEMENT TABS -----------------
 if is_admin:
+    with tab_metricas:
+        render_metrics_tab(current_user, API_URL)
+
     with tab_operadores:
         st.markdown("### 👥 Administración de Operadores de Escáner")
         st.markdown("Administra los usuarios autorizados para operar los puestos de digitalización y monitorea su productividad.")

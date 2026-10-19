@@ -75,6 +75,12 @@ def init_db():
             print("Added motivo_revision column to repartos (migration).")
     except Exception:
         pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repartos ADD COLUMN ruta_espejo VARCHAR(500)"))
+            print("Added ruta_espejo column to repartos (migration).")
+    except Exception:
+        pass
 
     # Bootstrap default admin user 1101 if not exists
     from models.database import Usuario

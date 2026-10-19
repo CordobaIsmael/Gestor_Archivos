@@ -35,7 +35,8 @@ class Reparto(Base):
     fecha = Column(Date, nullable=True)            # Date of the reparto
     
     ruta_original = Column(String(500), nullable=False) # Original path in Entrada/
-    ruta_nueva = Column(String(500), nullable=True)     # Organized path in Salida/ or Revision/
+    ruta_nueva = Column(String(500), nullable=True)     # Master organized path in A:\AD_... or Revision/
+    ruta_espejo = Column(String(500), nullable=True)    # Mirror query path in Q:\ or O:\
     estado = Column(String(50), nullable=False)          # 'ORGANIZADO', 'EN_REVISION'
     fecha_procesamiento = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -61,6 +62,7 @@ class Reparto(Base):
             "fecha": self.fecha.isoformat() if self.fecha else None,
             "ruta_original": self.ruta_original,
             "ruta_nueva": self.ruta_nueva,
+            "ruta_espejo": self.ruta_espejo,
             "estado": self.estado,
             "guias_encontradas": self.guias_encontradas,
             "guias_faltantes": self.guias_faltantes,

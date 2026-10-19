@@ -7,7 +7,7 @@ import os
 from config.settings import settings, validate_nro_reparto_digits
 from models.database import Reparto, Usuario
 from services.pdf_reader import PDFReader
-from services.file_manager import move_directory, get_organized_path
+from services.file_manager import move_directory, get_organized_path, get_mirror_path
 
 def find_folders_with_pdfs(root_path: Path) -> List[Path]:
     """
@@ -214,14 +214,15 @@ def process_incoming_folders(
                 except Exception as re_err:
                     print(f"Error renaming organized files: {re_err}")
                 
-                # Add DB record
+                final_dest_str = str(final_dest.resolve())
                 reparto_db = Reparto(
                     empresa=empresa,
                     sucursal=sucursal,
                     nro_reparto=nro_reparto,
                     fecha=metadata_found["fecha"],
                     ruta_original=original_path_str,
-                    ruta_nueva=str(final_dest.resolve()),
+                    ruta_nueva=final_dest_str,
+                    ruta_espejo=get_mirror_path(final_dest_str),
                     estado="ORGANIZADO",
                     usuario_id=usuario_id,
                     usuario_legajo=usuario_legajo,
@@ -470,7 +471,9 @@ def resolve_revision_folder(
     reparto.fecha = fecha_obj
     reparto.sucursal = sucursal
     reparto.nro_reparto = nro_reparto
-    reparto.ruta_nueva = str(final_dest.resolve())
+    final_dest_str = str(final_dest.resolve())
+    reparto.ruta_nueva = final_dest_str
+    reparto.ruta_espejo = get_mirror_path(final_dest_str)
     reparto.estado = "ORGANIZADO"
     reparto.guias_encontradas = guias_encontradas_str
     reparto.guias_faltantes = guias_faltantes_str
@@ -628,6 +631,7 @@ def return_reparto_to_revision(db: Session, reparto_id: int, usuario_id: int = N
     # Update DB record
     reparto.estado = "EN_REVISION"
     reparto.ruta_nueva = str(final_dest.resolve())
+    reparto.ruta_espejo = None
     reparto.motivo_revision = "Devuelto manualmente a revisión para corrección de datos"
     
     db.commit()

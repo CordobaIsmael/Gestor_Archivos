@@ -209,8 +209,8 @@ def get_repartos(
     results = []
     for r in repartos:
         d = r.to_dict()
-        if r.estado == "ORGANIZADO" and r.ruta_nueva:
-            d["ruta_espejo"] = get_mirror_path(r.ruta_nueva)
+        if r.estado == "ORGANIZADO" and (r.ruta_espejo or r.ruta_nueva):
+            d["ruta_espejo"] = get_mirror_path(r.ruta_espejo or r.ruta_nueva)
         else:
             d["ruta_espejo"] = r.ruta_nueva or r.ruta_original
         results.append(d)
@@ -285,11 +285,13 @@ def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
         import os
         from services.file_manager import get_mirror_path
 
-        # If organized, route strictly to mirror path (Q: or O:)
-        target_path_str = get_mirror_path(path_to_open) if reparto.estado == "ORGANIZADO" else path_to_open
+        # If organized, try mirror path first (Q: or O:); fallback to master storage
+        target_path_str = (reparto.ruta_espejo or get_mirror_path(path_to_open)) if reparto.estado == "ORGANIZADO" else path_to_open
         p = Path(target_path_str)
         if not p.exists():
-            if reparto.estado == "ORGANIZADO":
+            if path_to_open and Path(path_to_open).exists():
+                p = Path(path_to_open)
+            elif reparto.estado == "ORGANIZADO":
                 raise HTTPException(
                     status_code=404, 
                     detail=f"El reparto fue organizado con éxito en el servidor maestro, pero aún está pendiente de sincronización en el disco de consulta '{p.drive}' (se sincroniza cada 1 hora). Ruta: {target_path_str}"
@@ -321,10 +323,13 @@ def list_reparto_files(reparto_id: int, db: Session = Depends(get_db)):
     folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
     if not folder_str:
         return []
-    target_folder = get_mirror_path(folder_str) if reparto.estado == "ORGANIZADO" else folder_str
+    target_folder = (reparto.ruta_espejo or get_mirror_path(folder_str)) if reparto.estado == "ORGANIZADO" else folder_str
     p = Path(target_folder)
     if not p.exists() or not p.is_dir():
-        return []
+        if folder_str and Path(folder_str).exists():
+            p = Path(folder_str)
+        else:
+            return []
     
     files = []
     for f in p.glob("*.pdf"):
@@ -347,13 +352,16 @@ def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_d
     folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
     if not folder_str:
         raise HTTPException(status_code=404, detail="Ruta no disponible.")
-    target_folder = get_mirror_path(folder_str) if reparto.estado == "ORGANIZADO" else folder_str
+    target_folder = (reparto.ruta_espejo or get_mirror_path(folder_str)) if reparto.estado == "ORGANIZADO" else folder_str
     file_path = Path(target_folder) / filename
     if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(
-            status_code=404, 
-            detail=f"El archivo '{filename}' aún no se encuentra sincronizado en el disco de consulta (se sincroniza cada 1 hora)."
-        )
+        if folder_str and (Path(folder_str) / filename).exists():
+            file_path = Path(folder_str) / filename
+        else:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"El archivo '{filename}' aún no se encuentra sincronizado en el disco de consulta (se sincroniza cada 1 hora)."
+            )
     
     return FileResponse(
         path=str(file_path.resolve()), 
@@ -361,3 +369,74 @@ def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_d
         filename=filename,
         headers={"Content-Disposition": f"inline; filename=\"{filename}\""}
     )
+
+# ----------------- METRICS & PDF REPORT ENDPOINTS -----------------
+@app.get("/api/metrics", summary="Get operational and operator metrics summary")
+def get_metrics_endpoint(
+    desde: Optional[date] = Query(None, description="Start date filter (YYYY-MM-DD)"),
+    hasta: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    from services.metrics_service import get_metrics_summary
+    return get_metrics_summary(db=db, desde=desde, hasta=hasta)
+
+@app.get("/api/metrics/pdf", summary="Generate and download executive PDF metrics report")
+def download_metrics_pdf(
+    desde: Optional[date] = Query(None, description="Start date filter (YYYY-MM-DD)"),
+    hasta: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    filter_label: Optional[str] = Query("Histórico Total", description="Label for the active filter"),
+    admin_name: Optional[str] = Query("Administrador", description="Admin name requesting the report"),
+    db: Session = Depends(get_db)
+):
+    import io
+    from fastapi import Response
+    from services.metrics_service import get_metrics_summary, generate_metrics_pdf
+    
+    summary = get_metrics_summary(db=db, desde=desde, hasta=hasta)
+    pdf_bytes = generate_metrics_pdf(summary, filter_label=filter_label, admin_name=admin_name)
+    
+    filename = f"reporte_metricas_{date.today().strftime('%Y%m%d')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    )
+
+@app.get("/api/metrics/sucursales", summary="List available sucursales with their min and max repartos")
+def get_sucursales_stats_endpoint(db: Session = Depends(get_db)):
+    from services.metrics_service import get_available_sucursales_stats
+    return get_available_sucursales_stats(db=db)
+
+@app.get("/api/metrics/faltantes", summary="Get missing delivery numbers gap analysis for a sucursal")
+def get_faltantes_endpoint(
+    sucursal: str = Query(..., description="Sucursal code (e.g. BB, CF, NQ)"),
+    desde: Optional[int] = Query(None, description="Starting delivery number (optional)"),
+    hasta: Optional[int] = Query(None, description="Ending delivery number (optional)"),
+    db: Session = Depends(get_db)
+):
+    from services.metrics_service import get_missing_repartos_analysis
+    return get_missing_repartos_analysis(db=db, sucursal=sucursal, desde=desde, hasta=hasta)
+
+@app.get("/api/metrics/faltantes/pdf", summary="Generate and download PDF audit report of missing repartos")
+def download_faltantes_pdf(
+    sucursal: str = Query(..., description="Sucursal code (e.g. BB, CF, NQ)"),
+    desde: Optional[int] = Query(None, description="Starting delivery number (optional)"),
+    hasta: Optional[int] = Query(None, description="Ending delivery number (optional)"),
+    admin_name: Optional[str] = Query("Administrador", description="Admin name requesting the report"),
+    db: Session = Depends(get_db)
+):
+    from fastapi import Response
+    from services.metrics_service import get_missing_repartos_analysis, generate_missing_repartos_pdf
+    
+    analysis = get_missing_repartos_analysis(db=db, sucursal=sucursal, desde=desde, hasta=hasta)
+    pdf_bytes = generate_missing_repartos_pdf(analysis, admin_name=admin_name)
+    
+    filename = f"faltantes_{sucursal}_{analysis.get('desde')}_{analysis.get('hasta')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    )
+
+
+

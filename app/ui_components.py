@@ -309,6 +309,19 @@ def inject_custom_css():
         .stat-card.revision {
             border-left: 4px solid #f59e0b;
         }
+
+        .stat-card.primary {
+            border-left: 4px solid #3b82f6;
+        }
+
+        .stat-card.info {
+            border-left: 4px solid #06b6d4;
+        }
+
+        .stat-card.purple {
+            border-left: 4px solid #a855f7;
+        }
+
         
         .stat-value {
             font-size: 2.2rem;
@@ -721,3 +734,435 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                     
                 except Exception as pdf_err:
                     st.error(f"Error al abrir o renderizar el PDF: {pdf_err}")
+
+def render_metrics_tab(current_user: dict, api_url: str):
+    """Renders the dedicated Admin Metrics & Productivity tab with operational KPIs and PDF export."""
+    from datetime import date, datetime, timedelta
+    import pandas as pd
+    from services.metrics_service import generate_metrics_pdf, generate_missing_repartos_pdf
+
+    st.markdown("### 📊 Rendimiento de Producción y Productividad de Operadores")
+    st.markdown(
+        "Panel exclusivo para **Administradores**. Supervisión en tiempo real del desempeño del OCR, "
+        "volumen de digitalización diario y rendimiento individual de los puestos de escáner."
+    )
+
+    # 1. Filter bar & PDF export button
+    c_filt, c_custom1, c_custom2, c_btn = st.columns([2, 1.2, 1.2, 1.6])
+    with c_filt:
+        periodo_opcion = st.selectbox(
+            "📅 Período de Análisis:",
+            options=["Histórico Total", "Hoy", "Últimos 7 días", "Este Mes", "Rango Personalizado"],
+            index=0,
+            key="metrics_periodo_sel"
+        )
+    
+    desde = None
+    hasta = None
+    today = date.today()
+
+    if periodo_opcion == "Hoy":
+        desde = today
+        hasta = today
+    elif periodo_opcion == "Últimos 7 días":
+        desde = today - timedelta(days=7)
+        hasta = today
+    elif periodo_opcion == "Este Mes":
+        desde = today.replace(day=1)
+        hasta = today
+    elif periodo_opcion == "Rango Personalizado":
+        with c_custom1:
+            desde = st.date_input("Desde:", value=today - timedelta(days=30), key="metrics_desde")
+        with c_custom2:
+            hasta = st.date_input("Hasta:", value=today, key="metrics_hasta")
+
+    # Fetch data from API
+    params = {}
+    if desde:
+        params["desde"] = desde.isoformat()
+    if hasta:
+        params["hasta"] = hasta.isoformat()
+
+    try:
+        res = requests.get(f"{api_url}/api/metrics", params=params, timeout=10)
+        if res.status_code == 200:
+            m_data = res.json()
+        else:
+            st.error(f"Error al obtener métricas del servidor: {res.text}")
+            return
+    except Exception as ex:
+        st.error(f"Error de conexión con el backend: {ex}")
+        return
+
+    # Export PDF button in c_btn
+    with c_btn:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        label_filt = periodo_opcion if periodo_opcion != "Rango Personalizado" else f"{desde} a {hasta}"
+        pdf_bytes = generate_metrics_pdf(
+            m_data, 
+            filter_label=label_filt,
+            admin_name=current_user.get("nombre", "Administrador")
+        )
+        st.download_button(
+            label="📥 Exportar PDF",
+            data=pdf_bytes,
+            file_name=f"reporte_metricas_{today.strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+            help="Descargar informe oficial de gestión en formato PDF para presentación o auditoría."
+        )
+
+    st.markdown("---")
+
+    # ---------------- PUNTO 1: PRODUCCIÓN Y RENDIMIENTO OPERATIVO ----------------
+    st.markdown("#### 1. ⚙️ Indicadores de Rendimiento de Producción (OCR & Digitalización)")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(
+            f"""
+            <div class="stat-card primary">
+                <div class="stat-value" style="color: #3b82f6;">{m_data.get('total_procesados', 0)}</div>
+                <div class="stat-label">Total Digitalizados</div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    with col2:
+        eff = m_data.get('tasa_ocr_exito', 100.0)
+        eff_color = "#10b981" if eff >= 90 else ("#f59e0b" if eff >= 75 else "#ef4444")
+        st.markdown(
+            f"""
+            <div class="stat-card organized">
+                <div class="stat-value" style="color: {eff_color};">{eff}%</div>
+                <div class="stat-label">Éxito Automático OCR</div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    with col3:
+        st.markdown(
+            f"""
+            <div class="stat-card info">
+                <div class="stat-value" style="color: #06b6d4;">{m_data.get('hoy_procesados', 0)}</div>
+                <div class="stat-label">Digitalizados Hoy</div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    with col4:
+        rev_count = m_data.get('en_revision', 0)
+        rev_color = "#10b981" if rev_count == 0 else "#f59e0b"
+        st.markdown(
+            f"""
+            <div class="stat-card revision">
+                <div class="stat-value" style="color: {rev_color};">{rev_count}</div>
+                <div class="stat-label">Requieren Revisión</div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+
+    # Submetrics strip
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_sub1, c_sub2, c_sub3, c_sub4 = st.columns(4)
+    with c_sub1:
+        st.caption(f"📅 **Esta semana:** {m_data.get('semana_procesados', 0)} repartos")
+    with c_sub2:
+        st.caption(f"🗓️ **Este mes:** {m_data.get('mes_procesados', 0)} repartos")
+    with c_sub3:
+        st.caption(f"⚡ **Promedio diario:** {m_data.get('promedio_diario', 0)} rep/día")
+    with c_sub4:
+        st.caption(f"📆 **Días activos registrados:** {m_data.get('dias_activos', 0)} días")
+
+    # Daily evolution chart
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("##### 📈 Evolución Cronológica de Digitalización")
+        evol_data = m_data.get("evolucion_diaria", [])
+        if evol_data:
+            df_evol = pd.DataFrame(evol_data)
+            df_evol = df_evol.rename(columns={
+                "organizados": "Organizados con Éxito",
+                "revision": "Enviados a Revisión"
+            })
+            df_chart = df_evol.set_index("fecha")[["Organizados con Éxito", "Enviados a Revisión"]]
+            st.bar_chart(df_chart, color=["#10b981", "#f59e0b"], use_container_width=True)
+        else:
+            st.info("No hay datos de evolución para el período seleccionado.")
+
+    st.markdown("---")
+
+    # ---------------- PUNTO 2: PRODUCTIVIDAD POR OPERADOR ----------------
+    st.markdown("#### 2. 👤 Rendimiento y Productividad por Operador")
+    st.markdown("Monitorea el caudal de trabajo procesado por cada miembro del equipo y su porcentaje de aporte a la digitalización.")
+
+    operadores = m_data.get("operadores", [])
+    if not operadores:
+        st.info("No hay datos de operadores registrados para este período.")
+    else:
+        c_op_chart, c_op_table = st.columns([1.2, 1.8])
+        
+        # Chart
+        with c_op_chart:
+            with st.container(border=True):
+                st.markdown("##### 🏆 Caudal por Operador")
+                df_ops = pd.DataFrame(operadores)
+                df_ops["Operador"] = df_ops["nombre"] + " (" + df_ops["legajo"] + ")"
+                df_ops_chart = df_ops.set_index("Operador")[["total_procesados"]].rename(columns={"total_procesados": "Repartos Digitalizados"})
+                st.bar_chart(df_ops_chart, color="#6366f1", use_container_width=True)
+
+        # Table
+        with c_op_table:
+            with st.container(border=True):
+                st.markdown("##### 📋 Desglose Detallado de Personal")
+                
+                for idx, op in enumerate(operadores):
+                    medal = "🥇 " if idx == 0 and op['total_procesados'] > 0 else ("🥈 " if idx == 1 and op['total_procesados'] > 0 else "👤 ")
+                    c_l1, c_l2, c_l3 = st.columns([3, 2, 2])
+                    with c_l1:
+                        st.markdown(f"**{medal}{op['nombre']}** (`Legajo {op['legajo']}`)")
+                        st.caption(f"Rol: `{op['rol']}`")
+                    with c_l2:
+                        st.markdown(f"📁 **{op['total_procesados']}** procesados")
+                        st.caption(f"✓ {op['organizados']} org. | ⚠️ {op['en_revision']} rev.")
+                    with c_l3:
+                        pct = op.get('porcentaje_participacion', 0.0)
+                        st.markdown(f"**{pct}%** del total")
+                        st.progress(min(pct / 100.0, 1.0))
+                    if idx < len(operadores) - 1:
+                        st.markdown("<hr style='margin: 6px 0; border: 0.5px solid #334155;'>", unsafe_allow_html=True)
+
+    # ---------------- CONTEXTO LOGÍSTICO OPCIONAL ----------------
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🏢 Distribución de Volumen por Sucursal y Empresa (Contexto Logístico)", expanded=False):
+        c_suc, c_emp = st.columns(2)
+        with c_suc:
+            st.markdown("##### Top Sucursales Activas")
+            sucs = m_data.get("sucursales", [])
+            if sucs:
+                df_sucs = pd.DataFrame(sucs).set_index("sucursal")
+                st.bar_chart(df_sucs, color="#0ea5e9", use_container_width=True)
+            else:
+                st.caption("Sin datos.")
+        with c_emp:
+            st.markdown("##### Distribución por Empresa")
+            emps = m_data.get("empresas", [])
+            if emps:
+                df_emps = pd.DataFrame(emps).set_index("empresa")
+                st.bar_chart(df_emps, color="#a855f7", use_container_width=True)
+            else:
+                st.caption("Sin datos.")
+
+    # ---------------- PUNTO 3: AUDITORÍA DE REPARTOS FALTANTES ----------------
+    st.markdown("---")
+    st.markdown("#### 3. 🔍 Auditoría de Repartos Faltantes (Control de Correlatividad)")
+    st.markdown(
+        "Detecta qué repartos faltan digitalizar analizando el intervalo entre el número de reparto "
+        "**más bajo** y el **más alto** registrado en cada sucursal de forma 100% independiente."
+    )
+
+    # 1. Fetch available sucursales with their min and max
+    try:
+        r_sucs = requests.get(f"{api_url}/api/metrics/sucursales", timeout=10)
+        sucs_stats = r_sucs.json() if r_sucs.status_code == 200 else []
+    except Exception:
+        sucs_stats = []
+
+    if not sucs_stats:
+        st.info("No hay sucursales con repartos registrados para analizar.")
+    else:
+        # Create sucursal options
+        suc_map = {s["codigo"]: s for s in sucs_stats}
+        suc_options = [s["codigo"] for s in sucs_stats]
+        
+        c_sel_suc, c_desde, c_hasta, c_pdf = st.columns([2, 1.2, 1.2, 1.8])
+        
+        with c_sel_suc:
+            selected_suc_code = st.selectbox(
+                "🏢 Seleccionar Sucursal a Auditar:",
+                options=suc_options,
+                format_func=lambda x: f"{x} - {suc_map[x]['nombre']} ({suc_map[x]['total_repartos']} digitalizados)",
+                key="sel_suc_faltantes"
+            )
+
+        current_suc_info = suc_map[selected_suc_code]
+        min_auto = current_suc_info["min_reparto"]
+        max_auto = current_suc_info["max_reparto"]
+
+        with c_desde:
+            input_desde = st.number_input(
+                "Reparto Desde (Mín):",
+                min_value=1,
+                value=int(min_auto),
+                step=1,
+                key=f"num_desde_{selected_suc_code}",
+                help="Por defecto se toma el reparto más bajo detectado en la base de datos."
+            )
+
+        with c_hasta:
+            input_hasta = st.number_input(
+                "Reparto Hasta (Máx):",
+                min_value=int(input_desde),
+                value=int(max_auto),
+                step=1,
+                key=f"num_hasta_{selected_suc_code}",
+                help="Por defecto se toma el reparto más alto detectado en la base de datos."
+            )
+
+        # Query faltantes for this sucursal & range
+        try:
+            r_falt = requests.get(
+                f"{api_url}/api/metrics/faltantes",
+                params={
+                    "sucursal": selected_suc_code,
+                    "desde": int(input_desde),
+                    "hasta": int(input_hasta)
+                },
+                timeout=15
+            )
+            falt_data = r_falt.json() if r_falt.status_code == 200 else None
+        except Exception as ex_f:
+            st.error(f"Error al calcular repartos faltantes: {ex_f}")
+            falt_data = None
+
+        if falt_data:
+            with c_pdf:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                pdf_falt_bytes = generate_missing_repartos_pdf(
+                    falt_data,
+                    admin_name=current_user.get("nombre", "Administrador")
+                )
+                st.download_button(
+                    label=f"📥 Exportar Faltantes PDF ({selected_suc_code})",
+                    data=pdf_falt_bytes,
+                    file_name=f"faltantes_{selected_suc_code}_{input_desde}_{input_hasta}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    help="Descargar reporte oficial con el detalle de todos los tramos de repartos faltantes."
+                )
+
+            # KPI status cards
+            col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+            with col_k1:
+                st.markdown(
+                    f"""
+                    <div class="stat-card primary">
+                        <div class="stat-value" style="color: #3b82f6;">{falt_data['total_en_rango']:,}</div>
+                        <div class="stat-label">Total Teórico en Rango</div>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            with col_k2:
+                st.markdown(
+                    f"""
+                    <div class="stat-card organized">
+                        <div class="stat-value" style="color: #10b981;">{falt_data['total_existentes']:,}</div>
+                        <div class="stat-label">Digitalizados ({falt_data['porcentaje_cobertura']}%)</div>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            with col_k3:
+                st.markdown(
+                    f"""
+                    <div class="stat-card revision">
+                        <div class="stat-value" style="color: #ef4444;">{falt_data['total_faltantes']:,}</div>
+                        <div class="stat-label">Repartos Faltantes</div>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            with col_k4:
+                cant_tramos = len(falt_data.get('tramos', []))
+                st.markdown(
+                    f"""
+                    <div class="stat-card purple">
+                        <div class="stat-value" style="color: #a855f7;">{cant_tramos:,}</div>
+                        <div class="stat-label">Tramos / Saltos Detectados</div>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Sub-tabs for detailed gap exploration
+            subtab_tramos, subtab_buscar, subtab_listado = st.tabs([
+                f"📋 Tramos y Bloques Faltantes ({cant_tramos})",
+                "🔎 Verificador de Reparto Específico",
+                "🔢 Listado Numérico"
+            ])
+
+            with subtab_tramos:
+                tramos_list = falt_data.get("tramos", [])
+                if not tramos_list:
+                    st.success(f"🎉 ¡Correlatividad 100% Completa! No falta ningún reparto entre #{input_desde} y #{input_hasta}.")
+                else:
+                    st.caption("A continuación se detallan los saltos e intervalos donde se detectaron faltantes:")
+                    
+                    df_tramos = pd.DataFrame(tramos_list)
+                    df_tramos["Tipo"] = df_tramos["cantidad"].apply(lambda c: "Individual (1 número)" if c == 1 else f"Bloque ({c:,} números)")
+                    df_tramos["Desde"] = df_tramos["desde"].apply(lambda x: f"#{x}")
+                    df_tramos["Hasta"] = df_tramos["hasta"].apply(lambda x: f"#{x}")
+                    df_tramos = df_tramos.rename(columns={"cantidad": "Cantidad Faltante"})
+                    df_tramos.index = df_tramos.index + 1
+                    df_tramos.index.name = "N°"
+                    
+                    st.dataframe(
+                        df_tramos[["Desde", "Hasta", "Cantidad Faltante", "Tipo"]],
+                        use_container_width=True,
+                        height=350
+                    )
+
+            with subtab_buscar:
+                st.markdown("##### 🔎 Consultar si un Reparto está Digitalizado o Faltante")
+                nro_query = st.number_input(
+                    f"Ingrese número de reparto de {selected_suc_code}:",
+                    min_value=1,
+                    value=int(input_desde),
+                    step=1,
+                    key="query_single_reparto"
+                )
+                
+                # Check status
+                is_missing = False
+                tramos_match = None
+                for t in falt_data.get("tramos", []):
+                    if t["desde"] <= nro_query <= t["hasta"]:
+                        is_missing = True
+                        tramos_match = t
+                        break
+
+                if nro_query < input_desde or nro_query > input_hasta:
+                    st.info(f"El reparto #{nro_query} está fuera del rango actualmente evaluado (#{input_desde} a #{input_hasta}).")
+                elif is_missing:
+                    st.error(
+                        f"⚠️ **REPARTO #{nro_query} FALTANTE:** Este reparto NO ha sido digitalizado aún en la sucursal {selected_suc_code}.\n\n"
+                        f"Pertenece al tramo faltante desde **#{tramos_match['desde']}** hasta **#{tramos_match['hasta']}** ({tramos_match['cantidad']:,} faltantes en ese bloque)."
+                    )
+                else:
+                    st.success(f"✅ **REPARTO #{nro_query} DIGITALIZADO:** Este reparto se encuentra registrado y organizado correctamente en la base de datos.")
+
+            with subtab_listado:
+                st.markdown("##### 🔢 Muestra de Números Faltantes Individuales")
+                nums_list = falt_data.get("numeros_faltantes", [])
+                if not nums_list:
+                    st.success("No hay repartos faltantes.")
+                else:
+                    tot_all_missing = falt_data.get("total_numeros_faltantes", len(nums_list))
+                    if tot_all_missing > len(nums_list):
+                        st.info(f"Mostrando los primeros {len(nums_list):,} de {tot_all_missing:,} números faltantes (para descargar el informe completo de todos los tramos, utilice el botón de PDF arriba).")
+                    
+                    search_txt = st.text_input("Filtrar lista de números:", placeholder="Ej. 1578", key="filter_missing_nums")
+                    filtered_nums = [n for n in nums_list if search_txt in str(n)] if search_txt else nums_list
+                    
+                    formatted_pills = " ".join([f"<span style='background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; margin: 2px; display: inline-block;'>#{n}</span>" for n in filtered_nums[:300]])
+                    st.markdown(f"<div style='max-height: 250px; overflow-y: auto; padding: 10px; background: #0f172a; border-radius: 8px; border: 1px solid #334155;'>{formatted_pills}</div>", unsafe_allow_html=True)
+                    if len(filtered_nums) > 300:
+                        st.caption(f"Mostrando 300 de {len(filtered_nums)} números coincidentes.")
+
+

@@ -122,34 +122,43 @@ def move_directory(src_dir: Path, dest_dir: Path) -> Path:
 def get_mirror_path(path_str: str) -> str:
     r"""
     Translates a physical storage path (on drive A:) to the corresponding mirror query path:
-    - A:\AD_INTERPROVINCIAL\... -> Q:\AD_INTERPROVINCIAL\...
-    - A:\AD_OTAPEYA\...         -> O:\AD_OTAPEYA\...
+    - A:\AD_INTERPROVINCIAL\2026\... -> Q:\2026\... (directly on root Q:\)
+    - A:\AD_OTAPEYA\2026\...         -> O:\2026\... (directly on root O:\)
     """
     if not path_str:
         return path_str
         
-    p_upper = path_str.upper().strip()
+    p_norm = path_str.replace("/", "\\")
+    p_upper = p_norm.upper().strip()
     
-    # Interprovincial mirror in Q:
-    if p_upper.startswith(r"A:\AD_INTERPROVINCIAL"):
-        return "Q:" + path_str[2:]
-    if p_upper.startswith(r"A:/AD_INTERPROVINCIAL"):
-        return "Q:" + path_str[2:]
-        
-    # Otapeya mirror in O:
-    if p_upper.startswith(r"A:\AD_OTAPEYA"):
-        return "O:" + path_str[2:]
-    if p_upper.startswith(r"A:/AD_OTAPEYA"):
-        return "O:" + path_str[2:]
-        
+    # Interprovincial mirror in Q:\
+    for prefix in [r"A:\AD_INTERPROVINCIAL", r"Q:\AD_INTERPROVINCIAL"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):]
+            if not rel.startswith("\\"):
+                rel = "\\" + rel
+            return "Q:" + rel
+            
+    # Otapeya mirror in O:\
+    for prefix in [r"A:\AD_OTAPEYA", r"O:\AD_OTAPEYA"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):]
+            if not rel.startswith("\\"):
+                rel = "\\" + rel
+            return "O:" + rel
+            
+    # If already Q:\... or O:\...
+    if p_upper.startswith("Q:") or p_upper.startswith("O:"):
+        return p_norm
+
     return path_str
 
 
 def get_network_unc_path(path_str: str, server_ip: str = None) -> str:
     r"""
     Converts a local or mirror drive path into a standard Windows SMB network share path (UNC):
-    - A:\AD_INTERPROVINCIAL\... or Q:\AD_INTERPROVINCIAL\... -> \\SERVER_IP\AD_INTERPROVINCIAL\...
-    - A:\AD_OTAPEYA\... or O:\AD_OTAPEYA\... -> \\SERVER_IP\AD_OTAPEYA\...
+    - Q:\... or A:\AD_INTERPROVINCIAL\... -> \\SERVER_IP\AD_INTERPROVINCIAL\...
+    - O:\... or A:\AD_OTAPEYA\...         -> \\SERVER_IP\AD_OTAPEYA\...
     """
     if not path_str:
         return path_str
@@ -158,15 +167,24 @@ def get_network_unc_path(path_str: str, server_ip: str = None) -> str:
     p_norm = path_str.replace("/", "\\")
     p_upper = p_norm.upper()
     
+    # Interprovincial:
     for prefix in [r"A:\AD_INTERPROVINCIAL", r"Q:\AD_INTERPROVINCIAL"]:
         if p_upper.startswith(prefix):
             rel = p_norm[len(prefix):].lstrip("\\")
             return f"\\\\{host}\\AD_INTERPROVINCIAL" + (f"\\{rel}" if rel else "")
-            
+    if p_upper.startswith("Q:"):
+        rel = p_norm[2:].lstrip("\\")
+        return f"\\\\{host}\\AD_INTERPROVINCIAL" + (f"\\{rel}" if rel else "")
+        
+    # Otapeya:
     for prefix in [r"A:\AD_OTAPEYA", r"O:\AD_OTAPEYA"]:
         if p_upper.startswith(prefix):
             rel = p_norm[len(prefix):].lstrip("\\")
             return f"\\\\{host}\\AD_OTAPEYA" + (f"\\{rel}" if rel else "")
-            
+    if p_upper.startswith("O:"):
+        rel = p_norm[2:].lstrip("\\")
+        return f"\\\\{host}\\AD_OTAPEYA" + (f"\\{rel}" if rel else "")
+        
     return p_norm
+
 

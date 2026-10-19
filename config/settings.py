@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     DIR_OTAPEYA: Path = Path(r"A:\AD_OTAPEYA")
 
     # Company specific mirror paths (Read-only query storage)
-    MIRROR_DIR_INTERPROVINCIAL: Path = Path(r"Q:\AD_INTERPROVINCIAL")
-    MIRROR_DIR_OTAPEYA: Path = Path(r"O:\AD_OTAPEYA")
+    MIRROR_DIR_INTERPROVINCIAL: Path = Path("Q:/")
+    MIRROR_DIR_OTAPEYA: Path = Path("O:/")
 
     # Database settings
     DATABASE_URL: str = f"sqlite:///{BASE_DIR}/gestor_archivos.db"
