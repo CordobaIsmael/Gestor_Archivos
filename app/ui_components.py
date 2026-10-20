@@ -420,7 +420,7 @@ def render_header():
     st.markdown('<div class="main-header">GestorArchivo</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Digitalización y Organización Inteligente de Repartos</div>', unsafe_allow_html=True)
 
-def render_stats(organized_count: int, revision_count: int):
+def render_stats(organized_count: int, revision_count: int, revision_label: str = "Requieren Revisión"):
     """Renders sleek glassmorphic stats cards."""
     st.markdown(
         f"""
@@ -431,7 +431,7 @@ def render_stats(organized_count: int, revision_count: int):
             </div>
             <div class="stat-card revision">
                 <div class="stat-value" style="color: #f59e0b;">{revision_count}</div>
-                <div class="stat-label">Requieren Revisión</div>
+                <div class="stat-label">{revision_label}</div>
             </div>
         </div>
         """,
@@ -455,10 +455,11 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
     is_admin = bool(current_user and current_user.get("rol") == "ADMIN")
     es_devuelto = bool(reparto.get("motivo_revision") and "Devuelto" in str(reparto.get("motivo_revision")))
     is_blocked_for_operator = bool(es_devuelto and not is_admin)
+    op_info = reparto.get("usuario_legajo") or "S/A"
 
     badge_rev = " 🔄 [DEVUELTO A REVISIÓN]" if es_devuelto else ""
-    with st.expander(f"📁 {folder_name}{badge_rev} (ID: {reparto['id']})", expanded=is_active):
-        st.markdown(f"**Ruta actual de revisión:** `{reparto['ruta_nueva']}`")
+    with st.expander(f"📁 {folder_name}{badge_rev} | 👤 Operador: {op_info} (ID: {reparto['id']})", expanded=is_active):
+        st.markdown(f"**Ruta actual de revisión:** `{reparto['ruta_nueva']}` &nbsp;|&nbsp; 👤 **Escaneado por:** `{op_info}`")
         
         # Split layout: Left column for the form, Right column for the PDF viewer
         col_form, col_pdf = st.columns([1, 1])

@@ -212,10 +212,23 @@ if st.sidebar.button("🚀 Procesar Entrada", type="primary", use_container_widt
 
 # Split by state
 organizados = [r for r in all_repartos if r["estado"] == "ORGANIZADO"]
-en_revision = [r for r in all_repartos if r["estado"] == "EN_REVISION"]
+todas_revisiones = [r for r in all_repartos if r["estado"] == "EN_REVISION"]
 
-# Display stats cards
-render_stats(len(organizados), len(en_revision))
+# Filter revisions for the current logged-in user
+mis_revisiones = [
+    r for r in todas_revisiones 
+    if r.get("usuario_id") == current_user["id"] or 
+       (r.get("usuario_legajo") and str(r.get("usuario_legajo")).strip() == str(current_user["legajo"]).strip())
+]
+
+is_admin = (current_user.get("rol") == "ADMIN")
+
+# Display stats cards (Operators see personal revisions; Admins see personal + team total)
+if is_admin:
+    rev_card_label = "Requieren Revisión" if len(todas_revisiones) == len(mis_revisiones) else f"Mis Revisiones ({len(todas_revisiones)} en equipo)"
+    render_stats(len(organizados), len(mis_revisiones), revision_label=rev_card_label)
+else:
+    render_stats(len(organizados), len(mis_revisiones), revision_label="Mis Pendientes de Revisión")
 
 # Feedback posterior al procesamiento
 if st.session_state.get("process_feedback"):
@@ -231,11 +244,15 @@ if st.session_state.get("process_feedback"):
         st.info("ℹ️ No se encontraron nuevas carpetas con archivos PDF para procesar en la carpeta de Entrada.")
 
 # Tabs layout
-is_admin = (current_user.get("rol") == "ADMIN")
-
 if is_admin:
+    admin_view_choice = st.session_state.get("admin_rev_view_toggle", "Mis Revisiones")
+    if len(todas_revisiones) > len(mis_revisiones):
+        tab_rev_label = f"⚠️ En Revisión ({len(mis_revisiones)} mías / {len(todas_revisiones)} total)"
+    else:
+        tab_rev_label = f"⚠️ En Revisión ({len(mis_revisiones)})"
+
     tab_revision, tab_search, tab_organizados, tab_metricas, tab_operadores = st.tabs([
-        f"⚠️ En Revisión ({len(en_revision)})", 
+        tab_rev_label, 
         "🔍 Buscar Reparto",
         f"✓ Organizados ({len(organizados)})",
         "📊 Métricas & Rendimiento",
@@ -243,7 +260,7 @@ if is_admin:
     ])
 else:
     tab_revision, tab_search, tab_organizados = st.tabs([
-        f"⚠️ En Revisión ({len(en_revision)})", 
+        f"⚠️ En Revisión ({len(mis_revisiones)})", 
         "🔍 Buscar Reparto",
         f"✓ Organizados ({len(organizados)})"
     ])
@@ -255,14 +272,35 @@ with tab_revision:
         "metadatos críticos. Ingrese los datos manualmente para moverlas a la ramificación correcta."
     )
     
-    if not en_revision:
-        st.success("¡Excelente! No hay carpetas pendientes de revisión.")
+    if is_admin:
+        col_adm_f1, col_adm_f2 = st.columns([2.5, 1.5])
+        with col_adm_f1:
+            admin_view_choice = st.radio(
+                "Vista de revisión:",
+                options=["Mis Revisiones", "Todas las Revisiones del Equipo"],
+                index=0 if st.session_state.get("admin_rev_view_toggle") != "Todas las Revisiones del Equipo" else 1,
+                horizontal=True,
+                key="admin_rev_view_toggle",
+                help="Alterna entre ver sólo los repartos enviados a revisión por tu usuario o supervisar todo lo pendiente del equipo."
+            )
+        with col_adm_f2:
+            st.caption(f"👤 **Mis pendientes:** {len(mis_revisiones)} &nbsp;|&nbsp; 👥 **Total equipo:** {len(todas_revisiones)}")
+            
+        active_revision_list = mis_revisiones if admin_view_choice == "Mis Revisiones" else todas_revisiones
+    else:
+        active_revision_list = mis_revisiones
+
+    if not active_revision_list:
+        if is_admin and len(todas_revisiones) > 0 and admin_view_choice == "Mis Revisiones":
+            st.info(f"✅ **No tienes carpetas pendientes enviadas por tu usuario.** Hay **{len(todas_revisiones)}** carpeta(s) pendientes de otros operadores en el equipo (puedes cambiar arriba a **'Todas las Revisiones del Equipo'** para visualizarlas).")
+        else:
+            st.success("¡Excelente! No hay carpetas pendientes de revisión.")
     else:
         # Pagination settings
         ITEMS_PER_PAGE = 10
-        total_items = len(en_revision)
+        total_items = len(active_revision_list)
         import math
-        total_pages = math.ceil(total_items / ITEMS_PER_PAGE)
+        total_pages = math.ceil(total_items / ITEMS_PER_PAGE) if total_items > 0 else 1
         
         # Initialize page state
         if "revision_page" not in st.session_state:
@@ -296,7 +334,7 @@ with tab_revision:
         # Get paginated slice
         start_idx = (current_page - 1) * ITEMS_PER_PAGE
         end_idx = start_idx + ITEMS_PER_PAGE
-        paginated_revision = en_revision[start_idx:end_idx]
+        paginated_revision = active_revision_list[start_idx:end_idx]
         
         for reparto in paginated_revision:
             render_reparto_row(
