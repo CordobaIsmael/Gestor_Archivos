@@ -17,25 +17,39 @@ def get_local_ip() -> str:
         except Exception:
             return "127.0.0.1"
 
+def is_network_server_available(ip: str = "192.168.0.99", port: int = 445, timeout: float = 0.8) -> bool:
+    """Fast check to verify if the central storage server is online and reachable on the LAN."""
+    try:
+        s = socket.create_connection((ip, port), timeout=timeout)
+        s.close()
+        return True
+    except Exception:
+        return False
+
 class Settings(BaseSettings):
     # Base workspace directory (defaulting to parent of config/ folder)
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
-    # File organization paths
+    # File organization paths (local staging)
     ENTRADA: Path = BASE_DIR / "Entrada"
     SALIDA: Path = BASE_DIR / "Salida"
     REVISION: Path = BASE_DIR / "Revision"
 
-    # Company specific target paths (Original master storage)
-    DIR_INTERPROVINCIAL: Path = Path(r"A:\AD_INTERPROVINCIAL")
-    DIR_OTAPEYA: Path = Path(r"A:\AD_OTAPEYA")
+    # Central storage server IP for network terminals
+    STORAGE_SERVER_IP: str = "192.168.0.99"
+
+    # Company specific target paths for network terminals (Rutas de red UNC)
+    DIR_INTERPROVINCIAL: Path = Path(r"\\192.168.0.99\ad_interprovincial_red")
+    DIR_OTAPEYA: Path = Path(r"\\192.168.0.99\ad_otapeya_red")
 
     # Company specific mirror paths (Read-only query storage)
     MIRROR_DIR_INTERPROVINCIAL: Path = Path("Q:/")
     MIRROR_DIR_OTAPEYA: Path = Path("O:/")
 
-    # Database settings
-    DATABASE_URL: str = f"sqlite:///{BASE_DIR}/gestor_archivos.db"
+    # Database settings (Ruta de red compartida para terminales)
+    DIR_BASE_DATOS: Path = Path(r"\\192.168.0.99\base_gestor_archivos")
+    DATABASE_FILE: Path = Path(r"\\192.168.0.99\base_gestor_archivos\gestor_archivos.db")
+    DATABASE_URL: str = "sqlite://///192.168.0.99/base_gestor_archivos/gestor_archivos.db"
 
     # Server & API configuration for LAN access
     SERVER_IP: str = get_local_ip()
@@ -77,12 +91,28 @@ class Settings(BaseSettings):
             except Exception as e:
                 print(f"Could not create directory {path}: {e}")
 
-        for path in [self.DIR_INTERPROVINCIAL, self.DIR_OTAPEYA]:
+        # Check if storage server is reachable before probing network shares
+        if is_network_server_available(self.STORAGE_SERVER_IP):
+            for path in [self.DIR_INTERPROVINCIAL, self.DIR_OTAPEYA, self.DIR_BASE_DATOS]:
+                try:
+                    path.mkdir(parents=True, exist_ok=True)
+                    print(f"Network directory verified/created: {path}")
+                except Exception as e:
+                    print(f"Note: Network share {path} not directly accessible: {e}")
+
+            # If DIR_BASE_DATOS exists and database file is missing, copy existing database over
             try:
-                path.mkdir(parents=True, exist_ok=True)
-                print(f"Directory verified/created: {path}")
+                if self.DIR_BASE_DATOS.exists():
+                    target_db = self.DATABASE_FILE
+                    local_db = self.BASE_DIR / "gestor_archivos.db"
+                    if not target_db.exists() and local_db.exists():
+                        import shutil
+                        shutil.copy2(local_db, target_db)
+                        print(f"Database migrated successfully to: {target_db}")
             except Exception as e:
-                print(f"Note: Drive/directory {path} not directly accessible yet: {e}")
+                print(f"Note: Could not verify/copy initial database to {self.DIR_BASE_DATOS}: {e}")
+        else:
+            print(f"Note: Storage server {self.STORAGE_SERVER_IP} is not reachable on this network. Network shares not connected.")
 
 # Instantiate global settings
 settings = Settings()

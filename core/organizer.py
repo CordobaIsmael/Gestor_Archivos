@@ -670,6 +670,9 @@ def anular_y_borrar_reparto(
         Path(settings.ENTRADA).resolve(),
         Path(settings.SALIDA).resolve(),
         Path(settings.REVISION).resolve(),
+        Path(settings.DIR_BASE_DATOS).resolve(),
+        Path(settings.DIR_INTERPROVINCIAL).resolve(),
+        Path(settings.DIR_OTAPEYA).resolve(),
     }
     for drv in ["C:\\", "D:\\", "A:\\", "Q:\\", "O:\\"]:
         try:

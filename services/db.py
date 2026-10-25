@@ -1,15 +1,34 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from config.settings import settings
+from config.settings import settings, is_network_server_available
 from models.database import Base
+from pathlib import Path
 
-# Determine connect_args based on DB type (SQLite needs check_same_thread=False)
+# Determine effective DATABASE_URL
+db_url = settings.DATABASE_URL
+if settings.STORAGE_SERVER_IP in db_url:
+    # If central storage server is offline on this network, fallback to local workspace database
+    if not is_network_server_available(settings.STORAGE_SERVER_IP):
+        fallback_path = settings.BASE_DIR / "gestor_archivos.db"
+        print(f"Note: Storage server {settings.STORAGE_SERVER_IP} is offline. Using local database: {fallback_path}")
+        db_url = f"sqlite:///{fallback_path.as_posix()}"
+elif db_url.startswith("sqlite:///"):
+    db_file_str = db_url.replace("sqlite:///", "")
+    target_path = Path(db_file_str)
+    # If target is on a Windows drive that is not mounted on this PC, fallback to local workspace
+    if target_path.drive and not Path(f"{target_path.drive}/").exists():
+        fallback_path = settings.BASE_DIR / "gestor_archivos.db"
+        print(f"Note: Target database drive {target_path.drive} is not mounted. Using local database: {fallback_path}")
+        db_url = f"sqlite:///{fallback_path.as_posix()}"
+
+# Determine connect_args based on DB type (SQLite needs check_same_thread=False and timeout for network drives)
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     connect_args=connect_args
 )
 
