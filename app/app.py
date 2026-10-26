@@ -134,6 +134,13 @@ except Exception as e:
 st.sidebar.markdown(f"### 👤 Operador: `{current_user['legajo']}`")
 st.sidebar.markdown(f"**Nombre:** {current_user['nombre']} &nbsp;|&nbsp; **Rol:** `{current_user['rol']}`")
 
+# Environment indicator
+if getattr(settings, "IS_LOCAL_SERVER", False):
+    env_badge = "🖥️ **Entorno:** Servidor Local `(Disco A:\\)`"
+else:
+    env_badge = f"🌐 **Entorno:** Terminal de Red `(\\\\{getattr(settings, 'STORAGE_SERVER_IP', '192.168.0.99')})`"
+st.sidebar.markdown(f"<small>{env_badge}</small>", unsafe_allow_html=True)
+
 col_logout, col_pwd = st.sidebar.columns([1, 1])
 with col_logout:
     if st.button("🚪 Salir", use_container_width=True):

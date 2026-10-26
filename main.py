@@ -315,32 +315,27 @@ def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
         if not path_to_open:
             raise HTTPException(status_code=400, detail="La carpeta no tiene una ruta válida asignada.")
             
-        from pathlib import Path
         import os
-        from services.file_manager import get_mirror_path
+        from services.file_manager import resolve_accessible_folder
 
-        # If organized, try mirror path first (Q: or O:); fallback to master storage
-        target_path_str = (reparto.ruta_espejo or get_mirror_path(path_to_open)) if reparto.estado == "ORGANIZADO" else path_to_open
-        p = Path(target_path_str)
-        if not p.exists():
-            if path_to_open and Path(path_to_open).exists():
-                p = Path(path_to_open)
-            elif reparto.estado == "ORGANIZADO":
+        target_dir = resolve_accessible_folder(path_to_open, reparto.estado)
+        if not target_dir:
+            if reparto.estado == "ORGANIZADO":
                 raise HTTPException(
                     status_code=404, 
-                    detail=f"El reparto fue organizado con éxito en el servidor maestro, pero aún está pendiente de sincronización en el disco de consulta '{p.drive}' (se sincroniza cada 1 hora). Ruta: {target_path_str}"
+                    detail=f"El reparto fue organizado con éxito, pero la carpeta física no es accesible desde este equipo. Ruta registrada: {path_to_open}"
                 )
             else:
                 raise HTTPException(
                     status_code=404, 
-                    detail=f"La carpeta no existe físicamente en el sistema: {target_path_str}"
+                    detail=f"La carpeta no existe físicamente en el sistema: {path_to_open}"
                 )
             
         # Open folder in Windows File Explorer
-        os.startfile(str(p.resolve()))
+        os.startfile(str(target_dir.resolve()))
         return {
             "status": "success",
-            "message": f"Carpeta abierta en el explorador: {target_path_str}"
+            "message": f"Carpeta abierta en el explorador: {str(target_dir)}"
         }
     except HTTPException as he:
         raise he
@@ -349,24 +344,19 @@ def open_reparto_folder(reparto_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/repartos/{reparto_id}/files", summary="List PDF files in reparto folder")
 def list_reparto_files(reparto_id: int, db: Session = Depends(get_db)):
-    from pathlib import Path
-    from services.file_manager import get_mirror_path
+    from services.file_manager import resolve_accessible_folder
     reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
     if not reparto:
         raise HTTPException(status_code=404, detail="Reparto no encontrado.")
     folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
     if not folder_str:
         return []
-    target_folder = (reparto.ruta_espejo or get_mirror_path(folder_str)) if reparto.estado == "ORGANIZADO" else folder_str
-    p = Path(target_folder)
-    if not p.exists() or not p.is_dir():
-        if folder_str and Path(folder_str).exists():
-            p = Path(folder_str)
-        else:
-            return []
+    target_dir = resolve_accessible_folder(folder_str, reparto.estado)
+    if not target_dir:
+        return []
     
     files = []
-    for f in p.glob("*.pdf"):
+    for f in target_dir.glob("*.pdf"):
         files.append({
             "name": f.name,
             "size_kb": round(f.stat().st_size / 1024, 1),
@@ -377,25 +367,23 @@ def list_reparto_files(reparto_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/repartos/{reparto_id}/files/{filename}", summary="Download / View PDF file directly")
 def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_db)):
-    from pathlib import Path
     from fastapi.responses import FileResponse
-    from services.file_manager import get_mirror_path
+    from services.file_manager import resolve_accessible_folder
     reparto = db.query(Reparto).filter(Reparto.id == reparto_id).first()
     if not reparto:
         raise HTTPException(status_code=404, detail="Reparto no encontrado.")
     folder_str = reparto.ruta_nueva if reparto.ruta_nueva else reparto.ruta_original
     if not folder_str:
         raise HTTPException(status_code=404, detail="Ruta no disponible.")
-    target_folder = (reparto.ruta_espejo or get_mirror_path(folder_str)) if reparto.estado == "ORGANIZADO" else folder_str
-    file_path = Path(target_folder) / filename
+    target_dir = resolve_accessible_folder(folder_str, reparto.estado)
+    if not target_dir:
+        raise HTTPException(status_code=404, detail="Ruta no accesible desde este equipo.")
+    file_path = target_dir / filename
     if not file_path.exists() or not file_path.is_file():
-        if folder_str and (Path(folder_str) / filename).exists():
-            file_path = Path(folder_str) / filename
-        else:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"El archivo '{filename}' aún no se encuentra sincronizado en el disco de consulta (se sincroniza cada 1 hora)."
-            )
+        raise HTTPException(
+            status_code=404, 
+            detail=f"El archivo '{filename}' no se encuentra en el directorio accesible ({target_dir})."
+        )
     
     return FileResponse(
         path=str(file_path.resolve()), 
@@ -403,6 +391,19 @@ def get_reparto_file(reparto_id: int, filename: str, db: Session = Depends(get_d
         filename=filename,
         headers={"Content-Disposition": f"inline; filename=\"{filename}\""}
     )
+
+@app.get("/api/system/status", summary="Get system status and storage configuration")
+def get_system_status():
+    from config.settings import settings
+    return {
+        "status": "online",
+        "storage_mode": settings.STORAGE_MODE,
+        "is_local_server": settings.IS_LOCAL_SERVER,
+        "database_file": str(settings.DATABASE_FILE),
+        "dir_interprovincial": str(settings.DIR_INTERPROVINCIAL),
+        "dir_otapeya": str(settings.DIR_OTAPEYA),
+        "server_ip": settings.SERVER_IP
+    }
 
 # ----------------- METRICS & PDF REPORT ENDPOINTS -----------------
 @app.get("/api/metrics", summary="Get operational and operator metrics summary")

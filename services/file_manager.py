@@ -2,6 +2,7 @@ import shutil
 from pathlib import Path
 import os
 from datetime import date
+from typing import Optional
 from config.settings import settings
 
 SUCURSAL_NAMES = {
@@ -191,5 +192,78 @@ def get_network_unc_path(path_str: str, server_ip: str = None) -> str:
         return f"\\\\{host}\\ad_otapeya_red" + (f"\\{rel}" if rel else "")
         
     return p_norm
+
+
+def get_local_server_path(path_str: str) -> str:
+    r"""
+    Translates a UNC or mirror path back to the physical local drive A:\ on the local server:
+    - \\192.168.0.99\ad_interprovincial_red\... -> A:\AD_INTERPROVINCIAL\...
+    - \\192.168.0.99\ad_otapeya_red\...         -> A:\AD_OTAPEYA\...
+    - \\192.168.0.99\base_gestor_archivos\...    -> A:\BASE_GESTOR_ARCHIVOS\...
+    - Q:\...                                     -> A:\AD_INTERPROVINCIAL\...
+    - O:\...                                     -> A:\AD_OTAPEYA\...
+    """
+    if not path_str:
+        return path_str
+    p_norm = path_str.replace("/", "\\")
+    p_upper = p_norm.upper().strip()
+    
+    # Interprovincial
+    for prefix in [r"\\192.168.0.99\AD_INTERPROVINCIAL_RED", r"\\192.168.0.99\AD_INTERPROVINCIAL", r"Q:\AD_INTERPROVINCIAL", r"Q:"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):].lstrip("\\")
+            return r"A:\AD_INTERPROVINCIAL" + (f"\\{rel}" if rel else "")
+            
+    # Otapeya
+    for prefix in [r"\\192.168.0.99\AD_OTAPEYA_RED", r"\\192.168.0.99\AD_OTAPEYA", r"O:\AD_OTAPEYA", r"O:"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):].lstrip("\\")
+            return r"A:\AD_OTAPEYA" + (f"\\{rel}" if rel else "")
+
+    # Base de datos
+    for prefix in [r"\\192.168.0.99\BASE_GESTOR_ARCHIVOS"]:
+        if p_upper.startswith(prefix):
+            rel = p_norm[len(prefix):].lstrip("\\")
+            return r"A:\BASE_GESTOR_ARCHIVOS" + (f"\\{rel}" if rel else "")
+
+    return p_norm
+
+
+def resolve_accessible_folder(folder_str: str, estado: str = "ORGANIZADO") -> Optional[Path]:
+    r"""
+    Finds the first physically accessible directory for a reparto across:
+    1. Mirror path (Q:\ or O:\)
+    2. Given physical path (folder_str)
+    3. Network UNC path (\\192.168.0.99\...)
+    4. Local server drive path (A:\...)
+    """
+    if not folder_str:
+        return None
+        
+    candidates = []
+    if estado == "ORGANIZADO":
+        mirror = get_mirror_path(folder_str)
+        if mirror and mirror != folder_str:
+            candidates.append(Path(mirror))
+            
+    candidates.append(Path(folder_str))
+    
+    unc = get_network_unc_path(folder_str)
+    if unc and unc != folder_str:
+        candidates.append(Path(unc))
+        
+    local = get_local_server_path(folder_str)
+    if local and local != folder_str:
+        candidates.append(Path(local))
+        
+    for cand in candidates:
+        try:
+            if cand.exists() and cand.is_dir():
+                return cand
+        except Exception:
+            continue
+            
+    return None
+
 
 

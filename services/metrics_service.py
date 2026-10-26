@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from models.database import Reparto, Usuario
+from services.file_manager import get_mirror_path, resolve_accessible_folder
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -783,10 +784,7 @@ def run_integrity_audit(db: Session, dias_atras: Optional[int] = None) -> Dict[s
         elif p_mirror and p_mirror.exists():
             folder_found = p_mirror
         else:
-            if r.ruta_nueva:
-                alt_mirror = Path(get_mirror_path(r.ruta_nueva))
-                if alt_mirror.exists():
-                    folder_found = alt_mirror
+            folder_found = resolve_accessible_folder(r.ruta_nueva or r.ruta_espejo, r.estado)
 
         rep_codigo = f"{r.sucursal or 'S/D'}_{r.nro_reparto or 'S/N'}"
         f_iso = r.fecha.isoformat() if r.fecha else (r.fecha_procesamiento.strftime("%Y-%m-%d") if r.fecha_procesamiento else "S/F")
