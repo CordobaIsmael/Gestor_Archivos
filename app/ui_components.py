@@ -5,7 +5,15 @@ import base64
 from datetime import date, datetime
 from pathlib import Path
 import fitz  # PyMuPDF
-from config.settings import settings, validate_nro_reparto_digits, get_min_digits_for_sucursal
+from config.settings import (
+    settings,
+    validate_nro_reparto_digits,
+    get_min_digits_for_sucursal,
+    get_valid_sucursales,
+    is_valid_sucursal_for_empresa,
+    SUCURSALES_INTERPROVINCIAL,
+    SUCURSALES_OTAPEYA
+)
 from services.file_manager import get_network_unc_path
 
 API_URL = settings.API_URL
@@ -536,21 +544,33 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
             )
             
             suc_clean_cur = (reparto.get("sucursal") or "").upper().strip()
-            min_dig_hint = get_min_digits_for_sucursal(suc_clean_cur) if suc_clean_cur else 3
-            valid_suc_list = ", ".join(settings.VALID_SUCURSALES.keys())
+            emp_clean_cur = (empresa or reparto.get("empresa") or "").upper().strip()
+
+            if emp_clean_cur == "OTAPEYA":
+                valid_suc_list = "CC, BA, NQ"
+                min_dig_hint = 1
+                hint_label = "Sin mínimo de dígitos para Otapeya"
+                placeholder_suc = "CC, BA o NQ"
+            else:
+                valid_suc_list = ", ".join(SUCURSALES_INTERPROVINCIAL.keys())
+                min_dig_hint = get_min_digits_for_sucursal(suc_clean_cur, empresa="INTERPROVINCIAL")
+                hint_label = f"Mínimo {min_dig_hint} dígitos para {suc_clean_cur or 'esta sucursal'}"
+                placeholder_suc = "Ej. BB, CF, NQ, TD, VR, OL, GR, TA..."
 
             sucursal = st.text_input(
                 f"Sucursal ({valid_suc_list})", 
                 value=reparto["sucursal"] if reparto["sucursal"] else "",
-                placeholder="Ej. BB, CF, NQ, TD, VR, OL, GR, TA...",
+                placeholder=placeholder_suc,
                 disabled=is_blocked_for_operator,
                 key=f"suc_{reparto['id']}"
             )
+            if emp_clean_cur == "OTAPEYA":
+                st.caption("🏢 **Otapeya**: Únicamente `CC` (Casa Central / Bahía), `BA` (Capital) y `NQ` (Neuquén) — *Sin límite mínimo de dígitos*")
             
             nro_reparto = st.text_input(
-                f"Número de Reparto (Mínimo {min_dig_hint} dígitos para {suc_clean_cur or 'esta sucursal'})", 
+                f"Número de Reparto ({hint_label})", 
                 value=reparto["nro_reparto"] if reparto["nro_reparto"] else "",
-                placeholder=f"Ej. {'138232' if min_dig_hint >= 6 else '12345'}",
+                placeholder=f"Ej. {'138232' if min_dig_hint >= 6 else '123'}",
                 disabled=is_blocked_for_operator,
                 key=f"num_{reparto['id']}"
             )
@@ -653,12 +673,25 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 st.button("🔒 Edición reservada exclusivamente para Administradores", key=f"btn_blocked_{reparto['id']}", disabled=True, use_container_width=True)
             elif st.button("✓ Guardar y Organizar Carpeta", key=f"btn_{reparto['id']}", use_container_width=True):
                 suc_clean = sucursal.strip().upper()
-                is_valid_dig, act_dig, req_dig = validate_nro_reparto_digits(suc_clean, nro_reparto.strip())
+                emp_clean = empresa.strip().upper()
+
+                if emp_clean == "OTAPEYA":
+                    if suc_clean == "BB":
+                        suc_clean = "CC"
+                    elif suc_clean == "CF":
+                        suc_clean = "BA"
+
+                is_valid_dig, act_dig, req_dig = validate_nro_reparto_digits(suc_clean, nro_reparto.strip(), empresa=emp_clean)
+
                 if not sucursal.strip() or not nro_reparto.strip():
                     st.error("Por favor completa los campos de Sucursal y Número de Reparto.")
-                elif suc_clean not in settings.VALID_SUCURSALES:
-                    valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
-                    st.error(f"Por favor ingresa una sucursal válida. Debe ser una de: {valid_list}")
+                elif emp_clean == "OTAPEYA" and suc_clean not in ["CC", "BA", "NQ"]:
+                    st.error(f"Para OTAPEYA las únicas sucursales válidas son CC (Bahía), BA (Capital) y NQ (Neuquén). Ingresaste: '{suc_clean}'.")
+                elif emp_clean == "INTERPROVINCIAL" and suc_clean in ["CC", "BA"]:
+                    st.error("Las siglas CC y BA pertenecen exclusivamente a Otapeya. Para Interprovincial utiliza BB (Bahía Blanca) o CF (Capital Federal).")
+                elif not is_valid_sucursal_for_empresa(emp_clean, suc_clean):
+                    valid_list = ", ".join(get_valid_sucursales(emp_clean).keys())
+                    st.error(f"Por favor ingresa una sucursal válida para {emp_clean}. Debe ser una de: {valid_list}")
                 elif not is_valid_dig:
                     st.error(
                         f"El número de reparto para la sucursal {suc_clean} es incompleto o inválido. "
@@ -668,7 +701,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                     payload = {
                         "empresa": empresa,
                         "fecha": fecha.isoformat(),
-                        "sucursal": sucursal.strip(),
+                        "sucursal": suc_clean,
                         "nro_reparto": nro_reparto.strip(),
                         "salida_path": salida_path.strip() if salida_path else None,
                         "resolucion_guias_faltantes": resolucion_inputs if resolucion_inputs else None,

@@ -30,7 +30,9 @@ SUCURSAL_NAMES = {
     "TD": "TANDIL",
     "TAN": "TANDIL",
     "GR": "GENERAL_ROCA",
-    "ROC": "GENERAL_ROCA"
+    "ROC": "GENERAL_ROCA",
+    "CC": "BAHIA_BLANCA",
+    "BA": "CAPITAL_FEDERAL"
 }
 
 MONTH_NAMES = {
@@ -69,7 +71,31 @@ def get_organized_path(empresa: str, fecha: date, sucursal: str, nro_reparto: st
     
     # Map sucursal code to full name with underscores
     suc_code = sucursal.upper().strip()
+    
+    # Enforce Otapeya sucursal rules: Bahia Blanca is CC, Capital Federal is BA
+    if empresa_str == "OTAPEYA":
+        if suc_code == "BB":
+            suc_code = "CC"
+        elif suc_code == "CF":
+            suc_code = "BA"
+
     raw_suc_name = SUCURSAL_NAMES.get(suc_code, suc_code) # fallback to code if not in mapping
+
+    # Check if storage has alternative folder naming for Casa Central or Buenos Aires
+    if empresa_str == "OTAPEYA":
+        if suc_code == "CC":
+            try:
+                if (target_base / year_str / "CASA_CENTRAL").exists():
+                    raw_suc_name = "CASA_CENTRAL"
+            except Exception:
+                pass
+        elif suc_code == "BA":
+            try:
+                if (target_base / year_str / "BUENOS_AIRES").exists():
+                    raw_suc_name = "BUENOS_AIRES"
+            except Exception:
+                pass
+
     sucursal_name = raw_suc_name.replace(" ", "_")
     
     # Map month number to name in Spanish

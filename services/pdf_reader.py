@@ -8,9 +8,29 @@ import shutil
 
 class PDFReader:
     @staticmethod
-    def normalize_sucursal(sucursal_raw: str) -> str:
+    def normalize_sucursal(sucursal_raw: str, empresa: str = None) -> str:
         """Normalizes common OCR misread sucursales."""
         s = sucursal_raw.upper().strip()
+        emp_clean = empresa.upper().strip() if empresa else None
+
+        # Interprovincial NEVER uses CC or BA: keeps BB and CF intact
+        if emp_clean == "INTERPROVINCIAL":
+            if s in ["8B", "88", "B8", "B6", "86", "6B", "66", "B0", "0B"]:
+                return "BB"
+            if s in ["CF", "C.F."]:
+                return "CF"
+        # Otapeya ONLY uses CC, BA, NQ: converts BB->CC and CF->BA
+        elif emp_clean == "OTAPEYA":
+            if s in ["0C", "C0", "GG", "CG", "CC1", "CC0", "00", "CASACENTRAL", "CASA CENTRAL", "BB", "8B", "88", "B8", "B6", "86", "6B", "66", "B0", "0B"]:
+                return "CC"
+            if s in ["8A", "B4", "84", "BA1", "BA0", "BSAS", "BUENOS AIRES", "CF", "C.F.", "CAPITAL"]:
+                return "BA"
+        else:
+            if s in ["0C", "C0", "GG", "CG", "CC1", "CC0", "00", "CASACENTRAL", "CASA CENTRAL"]:
+                return "CC"
+            if s in ["8A", "B4", "84", "BA1", "BA0", "BSAS", "BUENOS AIRES"]:
+                return "BA"
+
         # Common OCR fixes for BB (Bahia Blanca)
         if s in ["8B", "88", "B8", "B6", "86", "6B", "66", "B0", "0B"]:
             return "BB"
@@ -148,12 +168,14 @@ class PDFReader:
         if not metadata["empresa"]:
             return metadata
             
+        empresa_actual = metadata["empresa"]
+
         # 2. Check for Reparto, Sucursal & Nro Reparto
         reparto_pattern = re.compile(r"Reparto\s+(\S+)\s+(\d+)", re.IGNORECASE)
         match = reparto_pattern.search(text)
         if match:
             raw_sucursal = match.group(1)
-            metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal)
+            metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal, empresa=empresa_actual)
             metadata["nro_reparto"] = match.group(2)
             metadata["is_hoja_reparto"] = True
         else:
@@ -161,15 +183,36 @@ class PDFReader:
             sucursal_candidates = [
                 "MP", "MDP", "TA", "AR", "CO", "COR", "CBA", "OL", "OLA",
                 "VR", "RE", "REG", "RC", "CH", "BB", "NQ", "NQN", "CF", 
-                "RO", "ROS", "AZ", "TD", "TAN", "GR", "ROC"
+                "RO", "ROS", "AZ", "TD", "TAN", "GR", "ROC", "CC", "BA"
             ]
             suc_regex = r"\b(" + "|".join(sucursal_candidates) + r")\s+(\d{3,8})\b"
             match_fallback = re.search(suc_regex, text, re.IGNORECASE)
             if match_fallback:
                 raw_sucursal = match_fallback.group(1)
-                metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal)
+                metadata["sucursal"] = cls.normalize_sucursal(raw_sucursal, empresa=empresa_actual)
                 metadata["nro_reparto"] = match_fallback.group(2)
                 metadata["is_hoja_reparto"] = True
+
+        # Empresa specific normalization and sucursal isolation
+        if empresa_actual == "OTAPEYA":
+            if metadata.get("sucursal") in ["BB", "8B", "88", "B8"]:
+                metadata["sucursal"] = "CC"
+            elif metadata.get("sucursal") in ["CF", "CAPITAL"]:
+                metadata["sucursal"] = "BA"
+            elif not metadata.get("sucursal"):
+                if "CASA CENTRAL" in text_upper or "CASACENTRAL" in text_upper or "BAHIA BLANCA" in text_upper or "BAHÍA BLANCA" in text_upper:
+                    metadata["sucursal"] = "CC"
+                elif "BUENOS AIRES" in text_upper or "CAPITAL FEDERAL" in text_upper:
+                    metadata["sucursal"] = "BA"
+                elif "NEUQUEN" in text_upper or "NEUQUÉN" in text_upper:
+                    metadata["sucursal"] = "NQ"
+            # Otapeya ONLY allows CC, BA, NQ
+            if metadata.get("sucursal") not in ["CC", "BA", "NQ"]:
+                metadata["sucursal"] = None
+        elif empresa_actual == "INTERPROVINCIAL":
+            # Interprovincial NEVER uses CC or BA
+            if metadata.get("sucursal") in ["CC", "BA"]:
+                metadata["sucursal"] = None
             
         # 3. Check for Date
         date_pattern = re.compile(r"\b(\d{2}/\d{2}/\d{4})\b")
@@ -243,6 +286,18 @@ class PDFReader:
             
         except Exception as e:
             print(f"Error reading PDF {pdf_path}: {e}")
+
+        # Enforce strict empresa sucursal rules
+        if metadata.get("empresa") == "OTAPEYA":
+            if metadata.get("sucursal") in ["BB", "8B", "88", "B8"]:
+                metadata["sucursal"] = "CC"
+            elif metadata.get("sucursal") in ["CF", "CAPITAL"]:
+                metadata["sucursal"] = "BA"
+            if metadata.get("sucursal") not in ["CC", "BA", "NQ"]:
+                metadata["sucursal"] = None
+        elif metadata.get("empresa") == "INTERPROVINCIAL":
+            if metadata.get("sucursal") in ["CC", "BA"]:
+                metadata["sucursal"] = None
             
         return metadata
 

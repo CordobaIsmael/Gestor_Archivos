@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Dict, Any
 import os
 
-from config.settings import settings, validate_nro_reparto_digits
+from config.settings import settings, validate_nro_reparto_digits, is_valid_sucursal_for_empresa, SUCURSALES_INTERPROVINCIAL, SUCURSALES_OTAPEYA
 from models.database import Reparto, Usuario
 from services.pdf_reader import PDFReader
 from services.file_manager import move_directory, get_organized_path, get_mirror_path
@@ -170,17 +170,23 @@ def process_incoming_folders(
                 fecha_info = existing_rep.fecha.isoformat() if existing_rep.fecha else "S/F"
                 duplicate_reason = f"POSIBLE DUPLICADO: El reparto {suc_chk}_{num_chk} ya fue organizado previamente (Operador: {op_info}, Fecha: {fecha_info})."
 
-        # Check if the detected sucursal is officially valid
-        is_valid_sucursal = (
-            metadata_found and 
-            metadata_found["sucursal"] and 
-            metadata_found["sucursal"].upper().strip() in settings.VALID_SUCURSALES
-        )
-
-        # Check if nro_reparto has the minimum required digits for this sucursal
+        # Check if the detected sucursal is officially valid for this specific empresa
+        emp_ext = metadata_found.get("empresa") if metadata_found else None
         suc_ext = metadata_found.get("sucursal") if metadata_found else None
         num_ext = metadata_found.get("nro_reparto") if metadata_found else None
-        is_valid_nro_digits, act_digits, req_min_digits = validate_nro_reparto_digits(suc_ext, num_ext)
+
+        # Otapeya normalization if BB or CF was read
+        if emp_ext == "OTAPEYA" and suc_ext:
+            if suc_ext == "BB":
+                suc_ext = "CC"
+            elif suc_ext == "CF":
+                suc_ext = "BA"
+            metadata_found["sucursal"] = suc_ext
+
+        is_valid_sucursal = is_valid_sucursal_for_empresa(emp_ext, suc_ext) if (emp_ext and suc_ext) else False
+
+        # Check if nro_reparto has valid digits (Otapeya is exempt from minimum digits)
+        is_valid_nro_digits, act_digits, req_min_digits = validate_nro_reparto_digits(suc_ext, num_ext, empresa=emp_ext)
 
         # If a complete Hoja de Reparto was found with all metadata, valid sucursal, valid digits, no missing guias, no unsigned guias, AND NOT a duplicate
         if (metadata_found and 
@@ -196,6 +202,13 @@ def process_incoming_folders(
             empresa = metadata_found["empresa"]
             sucursal = metadata_found["sucursal"]
             nro_reparto = metadata_found["nro_reparto"]
+
+            # Enforce Otapeya sucursal rules: Bahia is CC, Capital is BA
+            if empresa == "OTAPEYA":
+                if sucursal == "BB":
+                    sucursal = "CC"
+                elif sucursal == "CF":
+                    sucursal = "BA"
             
             dest_path = get_organized_path(
                 empresa=empresa,
@@ -299,6 +312,11 @@ def send_to_revision(
             
             suc_raw = metadata_found.get("sucursal")
             suc_clean = suc_raw.upper().strip() if suc_raw else None
+            if empresa == "OTAPEYA" and suc_clean:
+                if suc_clean == "BB":
+                    suc_clean = "CC"
+                elif suc_clean == "CF":
+                    suc_clean = "BA"
             sucursal = suc_clean if suc_clean in settings.VALID_SUCURSALES else None
             
             nro_reparto = metadata_found.get("nro_reparto")
@@ -364,15 +382,32 @@ def resolve_revision_folder(
         if not user or user.rol != "ADMIN":
             raise ValueError("ACCESO DENEGADO: Solo los Administradores tienen autorización para editar y organizar repartos devueltos a revisión.")
         
+    empresa_clean = empresa.strip().upper() if empresa else ""
     sucursal_clean = sucursal.strip().upper()
-    if sucursal_clean not in settings.VALID_SUCURSALES:
-        valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
-        raise ValueError(f"La sucursal '{sucursal}' no es válida. Debe ser una de: {valid_list}")
-        
+    
+    # Strict enterprise segregation:
+    if empresa_clean == "OTAPEYA":
+        if sucursal_clean == "BB":
+            sucursal_clean = "CC"
+        elif sucursal_clean == "CF":
+            sucursal_clean = "BA"
+        if sucursal_clean not in ["CC", "BA", "NQ"]:
+            raise ValueError(f"Para OTAPEYA, las únicas sucursales válidas son CC (Bahía), BA (Capital) y NQ (Neuquén). Se ingresó: '{sucursal}'")
+    elif empresa_clean == "INTERPROVINCIAL":
+        if sucursal_clean in ["CC", "BA"]:
+            raise ValueError("Las siglas CC y BA pertenecen exclusivamente a Otapeya. Para INTERPROVINCIAL debe ser BB (Bahía Blanca) o CF (Capital Federal).")
+        if not is_valid_sucursal_for_empresa("INTERPROVINCIAL", sucursal_clean):
+            valid_list = ", ".join(SUCURSALES_INTERPROVINCIAL.keys())
+            raise ValueError(f"La sucursal '{sucursal}' no es válida para INTERPROVINCIAL. Debe ser una de: {valid_list}")
+    else:
+        if sucursal_clean not in settings.VALID_SUCURSALES:
+            valid_list = ", ".join(settings.VALID_SUCURSALES.keys())
+            raise ValueError(f"La sucursal '{sucursal}' no es válida. Debe ser una de: {valid_list}")
+
     num_clean = nro_reparto.strip()
     
-    # Check minimum required digits for this sucursal
-    is_valid_dig, act_dig, req_min = validate_nro_reparto_digits(sucursal_clean, num_clean)
+    # Check minimum required digits (Otapeya is exempt from minimum digits)
+    is_valid_dig, act_dig, req_min = validate_nro_reparto_digits(sucursal_clean, num_clean, empresa=empresa_clean)
     if not is_valid_dig:
         raise ValueError(
             f"El número de reparto '{num_clean}' es inválido para la sucursal {sucursal_clean}. "

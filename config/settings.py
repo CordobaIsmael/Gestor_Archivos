@@ -4,6 +4,47 @@ import json
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Official valid sucursales segregated by company
+SUCURSALES_OTAPEYA: dict = {
+    "CC": "Casa Central (Bahía Blanca)",
+    "BA": "Capital Federal (Buenos Aires)",
+    "NQ": "Neuquén"
+}
+
+SUCURSALES_INTERPROVINCIAL: dict = {
+    "MP": "Mar del Plata",
+    "TA": "Tres Arroyos",
+    "CO": "Córdoba",
+    "OL": "Olavarría",
+    "VR": "Villa Regina",
+    "RC": "Río Colorado",
+    "CH": "Choele Choel",
+    "BB": "Bahía Blanca",
+    "CF": "Capital Federal",
+    "NQ": "Neuquén",
+    "RO": "Rosario",
+    "AZ": "Azul",
+    "TD": "Tandil",
+    "GR": "General Roca"
+}
+
+def get_valid_sucursales(empresa: str = None) -> dict:
+    """Returns official sucursales dictionary for the given empresa."""
+    emp = (empresa or "").upper().strip()
+    if emp == "OTAPEYA":
+        return SUCURSALES_OTAPEYA
+    elif emp == "INTERPROVINCIAL":
+        return SUCURSALES_INTERPROVINCIAL
+    return {**SUCURSALES_INTERPROVINCIAL, **SUCURSALES_OTAPEYA}
+
+def is_valid_sucursal_for_empresa(empresa: str, sucursal: str) -> bool:
+    """Checks whether the sucursal code is valid for the specific empresa."""
+    if not sucursal:
+        return False
+    suc = str(sucursal).upper().strip()
+    valid_map = get_valid_sucursales(empresa)
+    return suc in valid_map
+
 def get_local_ip() -> str:
     """Detects the LAN IP of the current host machine for multi-PC network access."""
     try:
@@ -102,22 +143,10 @@ class Settings(BaseSettings):
     API_PORT: int = 8502
     API_URL: str = f"http://{get_local_ip()}:8502"
 
-    # Official valid sucursales
+    # Combined valid sucursales dictionary for global lookup
     VALID_SUCURSALES: dict = {
-        "MP": "Mar del Plata",
-        "TA": "Tres Arroyos",
-        "CO": "Córdoba",
-        "OL": "Olavarría",
-        "VR": "Villa Regina",
-        "RC": "Río Colorado",
-        "CH": "Choele Choel",
-        "BB": "Bahía Blanca",
-        "CF": "Capital Federal",
-        "NQ": "Neuquén",
-        "RO": "Rosario",
-        "AZ": "Azul",
-        "TD": "Tandil",
-        "GR": "General Roca"
+        **SUCURSALES_INTERPROVINCIAL,
+        **SUCURSALES_OTAPEYA
     }
 
     model_config = SettingsConfigDict(
@@ -217,7 +246,7 @@ settings.apply_storage_mode()
 # Ensure directories are created on import
 settings.create_directories()
 
-# Minimum digits required for nro_reparto per sucursal
+# Minimum digits required for nro_reparto per sucursal (Interprovincial only)
 MIN_DIGITS_BY_SUCURSAL: dict = {
     "BB": 6,
     "CF": 5,
@@ -230,24 +259,40 @@ MIN_DIGITS_BY_SUCURSAL: dict = {
 }
 DEFAULT_MIN_DIGITS: int = 3
 
-def get_min_digits_for_sucursal(sucursal: str) -> int:
-    """Returns the minimum number of digits required for a sucursal's nro_reparto."""
-    if not sucursal:
-        return DEFAULT_MIN_DIGITS
-    suc_code = str(sucursal).upper().strip()
+def get_min_digits_for_sucursal(sucursal: str, empresa: str = None) -> int:
+    """
+    Returns minimum required digits for a sucursal's nro_reparto.
+    Otapeya (CC, BA, NQ) uses smaller numbers and is EXEMPT from minimum digit constraints.
+    """
+    emp = (empresa or "").upper().strip()
+    suc_code = str(sucursal).upper().strip() if sucursal else ""
+    if emp == "OTAPEYA" or suc_code in ["CC", "BA"]:
+        return 1
     return MIN_DIGITS_BY_SUCURSAL.get(suc_code, DEFAULT_MIN_DIGITS)
 
-def validate_nro_reparto_digits(sucursal: str, nro_reparto: str) -> tuple:
+def validate_nro_reparto_digits(sucursal: str, nro_reparto: str, empresa: str = None) -> tuple:
     """
-    Validates that nro_reparto contains at least the required minimum numeric digits for the given sucursal.
+    Validates that nro_reparto contains at least the required minimum numeric digits.
+    Otapeya (CC, BA, NQ) has smaller numbers and is EXEMPT from minimum digit requirements (any 1+ digits valid).
     Returns: (is_valid: bool, actual_digits: int, required_min_digits: int)
     """
-    req_min = get_min_digits_for_sucursal(sucursal)
     if not nro_reparto:
-        return False, 0, req_min
+        return False, 0, 1
     import re
     digits = re.sub(r"\D", "", str(nro_reparto))
-    return len(digits) >= req_min, len(digits), req_min
+    act_digits = len(digits)
+    if act_digits == 0:
+        return False, 0, 1
+
+    emp = (empresa or "").upper().strip()
+    suc_code = str(sucursal).upper().strip() if sucursal else ""
+
+    # Otapeya has smaller numbering: exempt from minimum digits check
+    if emp == "OTAPEYA" or suc_code in ["CC", "BA"]:
+        return True, act_digits, 1
+
+    req_min = get_min_digits_for_sucursal(suc_code, empresa=emp)
+    return act_digits >= req_min, act_digits, req_min
 
 # Path and configuration persistence utilities
 CONFIG_FILE = settings.BASE_DIR / "user_config.json"
