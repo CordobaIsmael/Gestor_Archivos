@@ -490,14 +490,18 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
             if reparto.get("motivo_revision"):
                 st.error(f"🛑 **Motivo de Revisión:** {reparto['motivo_revision']}")
             if reparto.get("guias_faltantes"):
-                st.error(f"⚠️ **Guías Faltantes:** {reparto['guias_faltantes'].replace(',', ', ')}")
+                clean_falt = ", ".join(dict.fromkeys([g.strip() for g in reparto['guias_faltantes'].split(",") if g.strip()]))
+                st.error(f"⚠️ **Guías Faltantes:** {clean_falt}")
             if reparto.get("guias_sin_firma"):
-                st.warning(f"✍️ **Guías Sin Firma:** {reparto['guias_sin_firma'].replace(',', ', ')}")
+                clean_sf = ", ".join(dict.fromkeys([g.strip() for g in reparto['guias_sin_firma'].split(",") if g.strip()]))
+                st.warning(f"✍️ **Guías Sin Firma:** {clean_sf}")
             if reparto.get("guias_no_entregadas"):
-                st.info(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** {reparto['guias_no_entregadas'].replace(',', ', ')}")
+                clean_ne = ", ".join(dict.fromkeys([g.strip() for g in reparto['guias_no_entregadas'].split(",") if g.strip()]))
+                st.info(f"🚫 **Guías No Entregadas (Marcadas 'NO' en Hoja):** {clean_ne}")
             if reparto.get("guias_encontradas"):
+                clean_enc = ", ".join(dict.fromkeys([g.strip() for g in reparto['guias_encontradas'].split(",") if g.strip()]))
                 with st.expander("✅ Guías Encontradas"):
-                    st.write(reparto["guias_encontradas"].replace(",", ", "))
+                    st.write(clean_enc)
             
             # Button to open the folder in File Explorer
             if st.button("📂 Abrir Carpeta en Explorador", key=f"open_rev_folder_{reparto['id']}", use_container_width=True):
@@ -582,7 +586,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 st.markdown("##### 🔍 Gestión de Guías Faltantes")
                 st.info("Para cada guía que no se encontró físicamente, selecciona el motivo o ingresa una observación:")
                 
-                faltantes_list = [g.strip() for g in reparto["guias_faltantes"].split(",") if g.strip()]
+                faltantes_list = list(dict.fromkeys([g.strip() for g in reparto["guias_faltantes"].split(",") if g.strip()]))
                 
                 opciones_resolucion = [
                     "Guia Escaneada",
@@ -592,7 +596,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                     "Otro"
                 ]
                 
-                for g in faltantes_list:
+                for idx, g in enumerate(faltantes_list):
                     st.markdown(f"**Guía `{g}`:**")
                     col_est, col_obs = st.columns([1, 1])
                     with col_est:
@@ -600,7 +604,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                             f"Estado / Motivo ({g})",
                             options=opciones_resolucion,
                             disabled=is_blocked_for_operator,
-                            key=f"res_estado_{reparto['id']}_{g}"
+                            key=f"res_estado_{reparto['id']}_{idx}_{g}"
                         )
                     with col_obs:
                         placeholder_obs = (
@@ -610,7 +614,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                         )
                         observacion = st.text_input(
                             f"Observación ({g})",
-                            key=f"res_obs_{reparto['id']}_{g}",
+                            key=f"res_obs_{reparto['id']}_{idx}_{g}",
                             disabled=is_blocked_for_operator,
                             placeholder=placeholder_obs
                         )
@@ -627,7 +631,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                 st.markdown("##### ✍️ Gestión de Guías Sin Firma")
                 st.info("Las siguientes guías fueron digitalizadas pero **no tienen firma detectada**. Indica el motivo para autorizar el archivo:")
                 
-                sin_firma_list = [g.strip() for g in reparto["guias_sin_firma"].split(",") if g.strip()]
+                sin_firma_list = list(dict.fromkeys([g.strip() for g in reparto["guias_sin_firma"].split(",") if g.strip()]))
                 
                 opciones_firma = [
                     "Firma ilegible / Trazo tenue",
@@ -637,7 +641,7 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                     "Autorizado por supervisor"
                 ]
                 
-                for g in sin_firma_list:
+                for idx, g in enumerate(sin_firma_list):
                     st.markdown(f"**Guía `{g}`:**")
                     col_est_f, col_obs_f = st.columns([1, 1])
                     with col_est_f:
@@ -645,12 +649,12 @@ def render_reparto_row(reparto: dict, on_resolve_callback, salida_path=None, mod
                             f"Motivo sin firma ({g})",
                             options=opciones_firma,
                             disabled=is_blocked_for_operator,
-                            key=f"res_firma_estado_{reparto['id']}_{g}"
+                            key=f"res_firma_estado_{reparto['id']}_{idx}_{g}"
                         )
                     with col_obs_f:
                         observacion_f = st.text_input(
                             f"Observación ({g})",
-                            key=f"res_firma_obs_{reparto['id']}_{g}",
+                            key=f"res_firma_obs_{reparto['id']}_{idx}_{g}",
                             disabled=is_blocked_for_operator,
                             placeholder="Ej. Cliente autorizó por WhatsApp / Reclamar a chofer..."
                         )

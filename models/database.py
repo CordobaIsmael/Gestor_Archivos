@@ -25,6 +25,13 @@ class Usuario(Base):
             "fecha_creacion": self.fecha_creacion.isoformat() if self.fecha_creacion else None
         }
 
+def clean_comma_separated_items(val: str) -> str:
+    """Removes duplicate comma-separated items while preserving order."""
+    if not val:
+        return None
+    items = [x.strip() for x in str(val).split(",") if x.strip()]
+    return ",".join(dict.fromkeys(items)) if items else None
+
 class Reparto(Base):
     __tablename__ = 'repartos'
 
@@ -69,11 +76,11 @@ class Reparto(Base):
             "ruta_nueva": self.ruta_nueva,
             "ruta_espejo": self.ruta_espejo,
             "estado": self.estado,
-            "guias_encontradas": self.guias_encontradas,
-            "guias_faltantes": self.guias_faltantes,
-            "guias_no_entregadas": self.guias_no_entregadas,
+            "guias_encontradas": clean_comma_separated_items(self.guias_encontradas),
+            "guias_faltantes": clean_comma_separated_items(self.guias_faltantes),
+            "guias_no_entregadas": clean_comma_separated_items(self.guias_no_entregadas),
             "resolucion_guias_faltantes": self.resolucion_guias_faltantes,
-            "guias_sin_firma": self.guias_sin_firma,
+            "guias_sin_firma": clean_comma_separated_items(self.guias_sin_firma),
             "resolucion_guias_sin_firma": self.resolucion_guias_sin_firma,
             "es_duplicado": self.es_duplicado or False,
             "motivo_revision": self.motivo_revision,

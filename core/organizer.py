@@ -141,6 +141,10 @@ def process_incoming_folders(
                 else:
                     faltantes_acc.append(g)
             
+            encontradas_acc = list(dict.fromkeys(encontradas_acc))
+            faltantes_acc = list(dict.fromkeys(faltantes_acc))
+            sin_firma_acc = list(dict.fromkeys(sin_firma_acc))
+
             guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
             guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
             guias_sin_firma_str = ",".join(sin_firma_acc) if sin_firma_acc else None
@@ -480,6 +484,10 @@ def resolve_revision_folder(
             else:
                 faltantes_acc.append(g)
         
+        encontradas_acc = list(dict.fromkeys(encontradas_acc))
+        faltantes_acc = list(dict.fromkeys(faltantes_acc))
+        sin_firma_acc = list(dict.fromkeys(sin_firma_acc))
+
         guias_encontradas_str = ",".join(encontradas_acc) if encontradas_acc else None
         guias_faltantes_str = ",".join(faltantes_acc) if faltantes_acc else None
         guias_sin_firma_str = ",".join(sin_firma_acc) if sin_firma_acc else None

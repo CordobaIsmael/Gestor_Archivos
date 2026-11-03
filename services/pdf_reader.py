@@ -439,9 +439,9 @@ class PDFReader:
                 a_controlar.append(code)
                 
             doc.close()
-            result["todas_guias"] = todas
-            result["guias_a_controlar"] = a_controlar
-            result["guias_no_entregadas"] = no_entregadas
+            result["todas_guias"] = list(dict.fromkeys(todas))
+            result["guias_a_controlar"] = list(dict.fromkeys(a_controlar))
+            result["guias_no_entregadas"] = list(dict.fromkeys(no_entregadas))
             return result
         except Exception as e:
             print(f"Error extracting expected guias with exclusions from {pdf_path.name}: {e}")
